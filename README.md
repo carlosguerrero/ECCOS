@@ -303,9 +303,8 @@ If you use **ECCOS** in your research, simulation studies, or baseline compariso
 @article{jaume2026eccos,
   title   = {{Event-Driven Computing Continuum Orchestration Solver (ECCOS): A Discrete-Event Simulation Framework for Optimal Service Placement and ML-Ready Trace Generation}},
   author  = {Jaume, Mireia and Lera, Isaac and Guerrero, Carlos},
-  journal = {Concurrency and Computation: Practice and Experience},
+  journal = {Submitted for evaluation},
   year    = {2026},
-  doi     = {10.1002/cpe.0000},
   note    = {Software available at: \url{https://github.com/carlosguerrero/ECCOS}}
 }
 ```

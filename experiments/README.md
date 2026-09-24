@@ -3,7 +3,7 @@
 This directory contains the declarative scenario configurations, simulation output traces, and plotting pipeline used to generate the experimental results presented in the research article:
 
 > **"Event-Driven Computing Continuum Orchestration Solver (ECCOS): A Discrete-Event Simulation Framework for Optimal Service Placement and ML-Ready Trace Generation"**  
-> *Mireia Jaume, Isaac Lera, Carlos Guerrero* (Concurrency and Computation: Practice and Experience).
+> *Mireia Jaume, Isaac Lera, Carlos Guerrero* (Submitted for evaluation).
 
 ---
 
