@@ -105,7 +105,7 @@ ECCOS emits fine-grained, telemetry-rich JSON snapshots before and after every d
 
 - **Repository Size Optimization:** Because 5,000 iterations across 4 scenarios generate ~3.1 GB of raw JSON telemetry, raw output directories (`Simulations_raw/` and `experiments/simulation_json_outputs_results/`) are excluded from Git tracking via [`.gitignore`](../.gitignore) to ensure fast and lightweight repository cloning.
 - **Open Data Archive (Zenodo):** The full 5,000-step raw dataset is permanently archived on Zenodo with an open-access DOI:
-  - **Zenodo Record:** [10.5281/zenodo.XXXXXXX](https://doi.org/10.5281/zenodo.XXXXXXX) *(update with publication DOI)*
+  - **Zenodo Record:** [10.5281/zenodo.22947855](https://doi.org/10.5281/zenodo.22947855)
 - **Local Replication:** Any researcher can regenerate the identical raw dataset locally by executing `python run_experiments.py --iterations 5000` with the preconfigured master seed (`42`).
 
 ---

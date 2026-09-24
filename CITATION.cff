@@ -19,7 +19,7 @@ license: MIT
 repository-code: "https://github.com/carlosguerrero/ECCOS"
 identifiers:
   - type: doi
-    value: "10.5281/zenodo.XXXXXXX"
+    value: "10.5281/zenodo.22947855"
     description: "Open-access archive for simulation traces and MDP dataset on Zenodo"
 keywords:
   - "computing-continuum"

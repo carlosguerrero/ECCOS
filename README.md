@@ -2,7 +2,7 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![DOI: 10.5281/zenodo.XXXXXXX](https://zenodo.org/badge/DOI/10.5281/zenodo.XXXXXXX.svg)](https://doi.org/10.5281/zenodo.XXXXXXX)
+[![DOI: 10.5281/zenodo.22947855](https://zenodo.org/badge/DOI/10.5281/zenodo.22947855.svg)](https://doi.org/10.5281/zenodo.22947855)
 [![Framework: ECCOS](https://img.shields.io/badge/Framework-ECCOS-brightgreen.svg)](#architecture-and-modular-design)
 [![Artifact Evaluation](https://img.shields.io/badge/Artifact-Reproducible-success.svg)](#reproducing-the-paper-experiments)
 [![Citation](https://img.shields.io/badge/Citation-BibTeX-orange.svg)](#how-to-cite)
@@ -183,14 +183,14 @@ python run_experiments.py --experiments 1 2 --iterations 1000
 
 Due to GitHub's repository size recommendations, the precomputed 5,000-step raw telemetry traces (~3.1 GB uncompressed across all 4 benchmark scenarios) are permanently archived on **Zenodo**:
 
-- **Zenodo DOI:** [10.5281/zenodo.XXXXXXX](https://doi.org/10.5281/zenodo.XXXXXXX)
+- **Zenodo DOI:** [10.5281/zenodo.22947855](https://doi.org/10.5281/zenodo.22947855)
 - **Archive Contents:** Per-step Markov Decision Process (MDP) state transitions $(s_t, a_t, r_t, s_{t+1})$, topology states, placement decisions, and objective metrics.
 - **License:** Creative Commons Attribution 4.0 International (CC-BY 4.0)
 
 ### Quick Download & Setup:
 ```bash
-# 1. Download the archive from Zenodo (replace XXXXXXX with the publication record ID)
-curl -L -o eccos_simulation_traces.tar.gz https://zenodo.org/records/XXXXXXX/files/eccos_simulation_traces.tar.gz?download=1
+# 1. Download the archive from Zenodo
+curl -L -o eccos_simulation_traces.tar.gz https://zenodo.org/records/22947855/files/eccos_simulation_traces.tar.gz?download=1
 
 # 2. Extract into the expected experiments results directory
 tar -xzf eccos_simulation_traces.tar.gz -C experiments/simulation_json_outputs_results/

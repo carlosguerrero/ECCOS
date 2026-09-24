@@ -1,6 +1,6 @@
 # ECCOS Precomputed Simulation Traces & Experimental Dataset
 
-[![DOI: 10.5281/zenodo.XXXXXXX](https://zenodo.org/badge/DOI/10.5281/zenodo.XXXXXXX.svg)](https://doi.org/10.5281/zenodo.XXXXXXX)
+[![DOI: 10.5281/zenodo.22947855](https://zenodo.org/badge/DOI/10.5281/zenodo.22947855.svg)](https://doi.org/10.5281/zenodo.22947855)
 
 This directory is the designated workspace for the precomputed, 5,000-step raw simulation output traces (`Simulation{i}.json`) used in the research paper:
 
@@ -13,7 +13,7 @@ This directory is the designated workspace for the precomputed, 5,000-step raw s
 
 Due to GitHub's file size policies, the full high-resolution trace dataset (~3.1 GB uncompressed across 4 scenarios) is permanently archived on **Zenodo**:
 
-- **Zenodo DOI:** [10.5281/zenodo.XXXXXXX](https://doi.org/10.5281/zenodo.XXXXXXX)
+- **Zenodo DOI:** [10.5281/zenodo.22947855](https://doi.org/10.5281/zenodo.22947855)
 - **Archive File:** `eccos_simulation_traces.tar.gz` (or `eccos_dataset.zip`)
 - **License:** Creative Commons Attribution 4.0 International (CC-BY 4.0)
 
@@ -25,8 +25,8 @@ To download and extract the dataset directly into this directory:
 # 1. Navigate to the repository root
 cd path/to/ECCOS
 
-# 2. Download the archive from Zenodo (replace XXXXXXX with the final Zenodo record ID)
-curl -L -o eccos_simulation_traces.tar.gz https://zenodo.org/records/XXXXXXX/files/eccos_simulation_traces.tar.gz?download=1
+# 2. Download the archive from Zenodo
+curl -L -o eccos_simulation_traces.tar.gz https://zenodo.org/records/22947855/files/eccos_simulation_traces.tar.gz?download=1
 
 # 3. Extract contents into this directory
 tar -xzf eccos_simulation_traces.tar.gz -C experiments/simulation_json_outputs_results/
