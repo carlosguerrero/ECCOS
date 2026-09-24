@@ -1,18 +1,20 @@
-
 # macOS
 .DS_Store
 .AppleDouble
 .LSOverride
 
-Simulations_raw/
-Simulations_official/
-docs_pdf/
-spec_driven_development_catalog/
-__pycache__/
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.egg-info/
+build/
+dist/
+.venv/
 
-# Local files and scratchplots
-scratch/
-src/paper_plots/
-
+# Large Simulation Outputs & Datasets
+Simulations_raw/
+Simulations_official/
+experiments/simulation_json_outputs_results/
+experiments/figures/plot2_geolocation_*/

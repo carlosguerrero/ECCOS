@@ -1,0 +1,537 @@
+# =============================================================================
+# ECCOS Experiment 1: Transient Infrastructure Disruption — Electric Storm
+# =============================================================================
+# Narrative: A severe electrical storm impacts the network region, causing
+# correlated node failures, edge outages, and heavy capacity degradation.
+# The storm produces bursty, spatially-correlated failures — a single
+# lightning strike can disable clusters of nearby nodes and congest
+# surrounding links simultaneously.
+#
+# Infrastructure stress is HIGH; application/user dynamics are deliberately
+# CALM to isolate the effect of hardware disruptions on placement quality.
+#
+# Topology:  scale_free (Barabási-Albert) — models Internet backbone where
+#            hub nodes are disproportionately affected by cascading failures.
+# Architecture: monolithic — isolates infra stress from microservice complexity.
+# =============================================================================
+
+scenario_name: electric_storm
+
+seeds:
+  master: 100  # Fixed seed for full reproducibility across runs
+
+# =============================================================================
+# INFRASTRUCTURE
+# =============================================================================
+infrastructure:
+  num_nodes: 50  # Mid-scale MEC deployment, consistent with paper baseline
+                 # [Armeniakos2025Stochastic; Fernando2025On]
+
+  model:
+    name: scale_free  # Barabási-Albert preferential attachment model.
+                      # Produces hub-dominated topologies representative of
+                      # Internet and telecom backbone structures where a few
+                      # central nodes act as communication hubs.
+                      # Ref: [Rak2020The; Barabási & Albert, Science 1999]
+    m: 2  # Each new node attaches to 2 existing nodes. Produces average
+           # degree ~4, matching observed ISP peering densities.
+           # Ref: [Faloutsos et al., SIGCOMM 1999]
+    layer:
+      mode: centrality_based_layer  # Nodes classified by betweenness centrality
+                                    # into Cloud/Fog/Edge tiers.
+                                    # Ref: [Oldham2018Consistency]
+      thresholds:
+        cloud_min: 0.10  # Top ~5% centrality → Cloud tier
+        fog_min: 0.02    # Intermediate centrality → Fog tier; rest → Edge
+
+  # ---------------------------------------------------------------------------
+  # NODE ATTRIBUTES
+  # ---------------------------------------------------------------------------
+  node:
+    attributes:
+      ram:
+        mode: centrality_based  # Higher-centrality nodes (closer to cloud)
+                                # receive proportionally more RAM.
+                                # Ref: [Oldham2018Consistency]
+        centrality_type: direct_proportional
+        distribution:
+          type: pareto  # Heavy-tailed distribution models heterogeneous
+                        # server capacities in real datacenters.
+                        # Ref: [Reiss et al., EuroSys 2012 — Google cluster traces]
+          a: 1.16       # Shape parameter fitted to Google cluster data
+          cloud:
+            type: uniform  # Cloud nodes have very large, homogeneous RAM
+            low: 100000.0
+            high: 100000.0
+        min: 8.0   # Minimum 8 GB — smallest edge device (Raspberry Pi 4/5)
+        max: 64.0  # Maximum 64 GB — high-end fog/edge server
+      cpu:
+        mode: centrality_based
+        centrality_type: direct_proportional
+        distribution:
+          type: pareto
+          a: 1.16  # Same heavy-tailed shape as RAM
+                   # Ref: [Reiss et al., EuroSys 2012]
+          cloud:
+            type: uniform
+            low: 100000.0
+            high: 100000.0
+        min: 2.0   # Minimum 2 vCPUs — constrained IoT gateway
+        max: 16.0  # Maximum 16 vCPUs — mid-range fog server
+
+    # -------------------------------------------------------------------------
+    # NODE EVENTS — HIGH FREQUENCY (storm scenario)
+    # -------------------------------------------------------------------------
+    actions:
+      disable_node:
+        frequency:
+          type: weibull  # Weibull with shape < 1 produces decreasing hazard
+                         # rate (bursty/infant-mortality failures), which models
+                         # clustered storm-induced outages well.
+                         # Ref: [Schroeder & Gibson, DSN 2007 —
+                         #        "Disk failures in the real world"]
+          a: 0.8         # Shape < 1 → bursty inter-arrivals (storm clusters)
+          scale: 60.0    # Mean inter-failure ~60s during active storm phase.
+                         # Storms cause failures every 1-2 min per node.
+                         # Ref: [Markopoulou et al., INFOCOM 2004 —
+                         #        "Characterization of failures in an IP backbone"]
+        impact:
+          distribution_to_enable_node:
+            type: lognormal  # Heavy-tailed MTTR: most repairs are fast but
+                             # some take very long (dispatching repair crews
+                             # during a storm).
+                             # Ref: [Schroeder & Gibson, DSN 2007]
+            mean: 3.0        # Median MTTR ~20s (e^3.0 ≈ 20), but tail
+                             # extends to hours in worst cases
+            sigma: 1.5       # High variance — storm conditions make repair
+                             # times unpredictable
+
+      degrade_node:
+        frequency:
+          type: weibull  # Bursty degradation from power surges/brownouts
+                         # Ref: [Bantock2020Mitigating]
+          a: 0.9         # Slightly less bursty than total failures
+          scale: 40.0    # Very frequent during storm — every ~40s per node.
+                         # Power surges cause thermal throttling and OS contention.
+                         # Ref: [Bantock2020Mitigating]
+        impact:
+          target_attributes: ["ram", "cpu"]  # Both compute resources affected
+                                              # by power instability
+          p_loss_dist:
+            type: beta   # Beta(2,2) is symmetric around 0.5, modeling
+                         # moderate-to-severe degradation during storms
+                         # (unlike normal brownouts which are typically mild).
+                         # Ref: [Ghosh et al., DSN 2010 —
+                         #        "Modeling and analysis of transient faults"]
+            a: 2
+            b: 2         # Symmetric: mean degradation = 50% capacity loss.
+                         # Storm-induced power surges cause severe throttling.
+          distribution_to_restore_node:
+            type: lognormal  # Recovery after power stabilizes
+            mean: 2.5        # Median ~12s recovery
+            sigma: 1.0       # Moderate variability
+
+  # ---------------------------------------------------------------------------
+  # EDGE ATTRIBUTES
+  # ---------------------------------------------------------------------------
+  edge:
+    attributes:
+      delay:
+        mode: homogenic  # Link delays are independent of topology position
+        distribution:
+          type: lognormal  # Internet latency is well-modeled by lognormal
+                           # distributions due to multiplicative queueing effects.
+                           # Ref: [Hao et al., IMC 2010 —
+                           #        "Detecting and characterizing latency"]
+          mean: 1.5        # Median delay ~4.5ms (e^1.5), typical for metro
+                           # area MEC networks
+          sigma: 0.8       # Moderate variance — some links are longer
+
+    # -------------------------------------------------------------------------
+    # EDGE EVENTS — HIGH FREQUENCY (storm scenario)
+    # -------------------------------------------------------------------------
+    actions:
+      disable_edge:
+        frequency:
+          type: weibull  # Bursty link failures from cable damage, antenna
+                         # misalignment, or power loss at relay stations.
+                         # Ref: [Markopoulou et al., INFOCOM 2004]
+          a: 0.8
+          scale: 45.0    # Slightly more frequent than node failures — links
+                         # are more exposed to weather damage (overhead cables,
+                         # wireless links affected by rain fade).
+                         # Ref: [Markopoulou et al., INFOCOM 2004]
+        impact:
+          distribution_to_enable_edge:
+            type: lognormal
+            mean: 2.5    # Median ~12s downtime
+            sigma: 1.2   # High variability — some links take much longer
+
+      congest_edge:
+        frequency:
+          type: weibull
+          a: 0.9
+          scale: 30.0    # Very frequent congestion as traffic reroutes around
+                         # failed links, overloading surviving paths.
+                         # Ref: [Zhang2022Optimal]
+        impact:
+          target_attributes_loss: ["bandwidth"]
+          target_attributes_multiplier: ["delay"]
+          p_loss_dist:
+            type: beta  # Moderate-to-heavy bandwidth loss during rerouting
+            a: 2
+            b: 3        # Mean ~0.4 (40% bandwidth loss). Skewed toward
+                        # moderate loss; extreme loss is less common.
+                        # Ref: [Ghosh et al., DSN 2010]
+          multiplier_dist:
+            type: lognormal  # Delay inflation from congestion. Lognormal
+                             # captures occasional extreme spikes.
+                             # Ref: [Hao et al., IMC 2010]
+            mean: 1.0        # Median 2.7x delay increase during congestion
+            sigma: 0.5       # Some links experience much worse inflation
+          distribution_to_clear_edge:
+            type: lognormal
+            mean: 2.0    # Median ~7s until congestion clears
+            sigma: 0.8
+
+# =============================================================================
+# APPLICATIONS — CALM dynamics (isolate infrastructure stress)
+# =============================================================================
+app:
+  num_apps: 20  # 20 initial applications — standard benchmark size
+                # Ref: [paper baseline, Section 5]
+  architecture: monolithic  # Single deployment unit per app.
+                            # Simplifies placement to isolate infra stress.
+                            # Ref: [Oyeniran2024Microservices]
+
+  services:
+    network:
+      delay:
+        distribution:
+          type: uniform  # Uniform delay requirements — no specific QoS class
+          low: 10.0      # 10ms minimum tolerable delay
+          high: 50.0     # 50ms maximum — covers IoT and interactive apps
+                         # Ref: [3GPP TS 23.501 — 5G QoS requirements]
+      bandwidth:
+        distribution:
+          type: uniform
+          low: 10.0   # 10 Mbps minimum
+          high: 100.0  # 100 Mbps maximum — video streaming upper bound
+                       # Ref: [Cisco Annual Internet Report 2023]
+    topology_model: directed_scale_free
+    scale_free_settings:
+      initial_nodes: 2
+      edges_per_node: 2
+    num_services_range: [2, 6]  # 2-6 services per app
+                                 # Ref: [Cerny2024From — typical microservice counts]
+    profiles:
+      iot:
+        prob: 0.6  # 60% IoT workloads — dominant in edge environments
+                   # Ref: [Cisco Annual Internet Report 2023]
+        attributes:
+          cpu:
+            distribution:
+              type: lognormal
+              mean: 0.1   # Low CPU demand — telemetry, sensor data
+              sigma: 0.5  # Ref: [Luo et al., NSDI 2021 — Alibaba traces]
+          ram:
+            distribution:
+              type: lognormal
+              mean: 0.1
+              sigma: 0.5
+      video:
+        prob: 0.4  # 40% video/streaming workloads
+                   # Ref: [Cisco Annual Internet Report 2023]
+        attributes:
+          cpu:
+            distribution:
+              type: lognormal
+              mean: 2.0   # Higher CPU — transcoding, inference
+              sigma: 1.0  # Ref: [Lu et al., NSDI 2019 — Azure traces]
+          ram:
+            distribution:
+              type: lognormal
+              mean: 3.0   # Higher RAM — frame buffers, model weights
+              sigma: 1.5
+
+  popularity:
+    distribution:
+      type: zipf  # Content/app popularity follows Zipf's law universally
+                  # Ref: [Breslau et al., INFOCOM 1999 — "On the implications
+                  #        of Zipf's law for web caching"]
+      a: 1.2      # Exponent 1.2 — moderate skew; a few apps dominate
+                  # Ref: [Breslau et al., INFOCOM 1999]
+    local_app_ratio: 0.2  # 20% of apps are location-dependent
+                          # (e.g., local emergency services during storm)
+                          # Ref: [Chen2022Efficient]
+    local_radius_influence: 0.15  # Influence radius = 15% of spatial region
+
+  num_new_users:
+    type: integers
+    low: 1
+    high: 4  # 1-4 initial users per app — moderate initial demand
+
+  # ---------------------------------------------------------------------------
+  # APPLICATION EVENTS — LOW FREQUENCY (calm app dynamics during storm)
+  # ---------------------------------------------------------------------------
+  actions:
+    remove_app:
+      frequency:
+        type: exponential
+        scale: 600  # Very rare app removal — apps persist during storm
+                    # (emergency services don't shut down)
+
+    update_app_footprint:
+      frequency:
+        type: exponential
+        scale: 300  # Infrequent workload changes — stable apps
+      impact:
+        sigma_footprint:
+          type: uniform
+          low: 0.03   # Small footprint variations
+          high: 0.08  # Ref: [Cortez et al., ATC 2017 — Azure workload analysis]
+
+    update_app_network:
+      frequency:
+        type: exponential
+        scale: 350  # Rare network requirement changes
+      impact:
+        sigma_net:
+          type: uniform
+          low: 0.03
+          high: 0.08
+
+    update_app_topology:
+      frequency:
+        type: exponential
+        scale: 500  # Very rare topology mutations during crisis
+      impact:
+        l_min:
+          type: integers
+          low: 2
+          high: 3
+        l_max_global:
+          type: integers
+          low: 6
+          high: 7
+
+#    surge_popularity:
+#      frequency:
+#        type: exponential
+#        scale: 400  # Rare popularity surges — no viral events during storm
+#      impact:
+#        transient_prob:
+#          type: uniform
+#          low: 0.8
+#          high: 0.8  # 80% chance of being transient
+#        duration_dist:
+#          type: weibull
+#          a: 1.5
+#          scale: 10.0  # Ref: [Jung et al., WWW 2002 — Flash Crowds]
+
+#    drop_popularity:
+#      frequency:
+#        type: exponential
+#        scale: 400
+#      impact:
+#        transient_prob:
+#          type: uniform
+#          low: 0.8
+#          high: 0.8
+#        duration_dist:
+#          type: weibull
+#          a: 1.5
+#          scale: 10.0
+
+    geo_demand_shift:
+      frequency:
+        type: exponential
+        scale: 300  # Rare hotspot shifts — users stay sheltered during storm
+      impact:
+        jump_prob:
+          type: uniform
+          low: 0.1
+          high: 0.1  # 10% chance of jump, 90% smooth drift
+        drift_dist:
+          type: normal
+          mean: 0.0
+          sigma: 0.03  # Small drift magnitude
+
+# =============================================================================
+# USERS — MODERATE dynamics
+# =============================================================================
+user:
+  num_users: 10  # 20% of 50 nodes = 10 initial users.
+                 # Moderate density — users seek shelter during storm.
+
+  spatial_distribution:
+    model: thomas_cluster  # Clustered around shelters/buildings during storm
+                           # Ref: [Saha2016Enriched; Yang2021Comparative]
+    hotspots: 5   # 5 shelter/congregation points
+    spread: 0.08  # Moderate clustering — not as tight as crowd scenario
+
+  spatial_region:
+    width: 2.0   # 2.0 × 2.0 normalized spatial region
+    height: 2.0
+    num_vertical_streets: 10
+    num_horizontal_streets: 10
+
+  mobility:
+    model: random  # Random direction — people scatter for shelter, not
+                   # following strict street patterns.
+                   # Ref: [Kerdsri2017Visualization]
+    turn_probabilities:
+      straight: 0.6  # Tendency to maintain direction (heading to shelter)
+      left: 0.2
+      right: 0.2
+    speed:
+      type: uniform
+      low: 0.003   # Slow movement — reduced visibility, dangerous conditions
+      high: 0.01   # Ref: [Pedestrian speed models — Weidmann, 1993]
+    coverage_radius:
+      type: normal
+      mean: 0.2    # Standard small-cell radius (~200m normalized)
+                   # Ref: [Rappaport, Wireless Communications, 2024]
+      sigma: 0.02
+
+  request_ratio:
+    type: exponential
+    scale: 5  # Standard request rate per user session
+              # Ref: [Paxson & Floyd, SIGCOMM 1995]
+
+  # ---------------------------------------------------------------------------
+  # USER EVENTS — MODERATE frequency
+  # ---------------------------------------------------------------------------
+  actions:
+    remove_user:
+      frequency:
+        type: exponential
+        scale: 400  # Rare permanent disconnection — users stay connected
+                    # for emergency information
+
+    suspend_user:
+      frequency:
+        type: exponential
+        scale: 60  # FREQUENT temporary disconnections — storm causes
+                   # signal loss, power interruptions at user devices.
+                   # Ref: [Ampratwum2025Radio — Radio Link Failures]
+      impact:
+        resume_user:
+          type: lognormal
+          mean: 1.5   # Median ~4.5s disconnection
+          sigma: 0.8  # High variability — some users lose signal for minutes
+
+    move_user:
+      frequency:
+        type: exponential
+        scale: 90  # Moderate movement — people are less mobile during storm
+
+#    change_request_ratio:
+#      frequency:
+#        type: exponential
+#        scale: 120  # Moderate — users may refresh emergency apps more often
+#      impact:
+#        increase_probability: 0.6  # 60% increase (checking storm updates) /
+#                                   # 40% decrease (lost connectivity)
+#        multiplier:
+#          type: uniform
+#          low: 1.5
+#          high: 2.5  # Moderate multiplier
+#        restore_ratio:
+#          type: lognormal
+#          mean: 1.0
+#          sigma: 0.5
+
+# =============================================================================
+# GLOBAL SPAWNER
+# =============================================================================
+global_spawner:
+  actions:
+    # --- Standard user arrival ---
+    new_user:
+      type_object: user
+      action_type: new_user
+      frequency:
+        type: exponential
+        scale: 40  # Balanced to maintain stable user count (scale 400 / 10 users)
+                   # during storm (emergency services personnel, first responders)
+                   # Ref: [Paxson & Floyd, SIGCOMM 1995]
+
+    # --- Very rare new app (apps are pre-deployed before storm) ---
+    new_app:
+      type_object: app
+      action_type: new_app
+      frequency:
+        type: exponential
+        scale: 30  # Balanced to maintain stable app count (scale 600 / 20 apps)
+      impact:
+        num_new_users: 2
+
+    # =========================================================================
+    # COMPOSED EVENT: Lightning Strike
+    # =========================================================================
+    # Models a single lightning strike that simultaneously:
+    #   1. Disables a cluster of 3 topologically proximate nodes
+    #   2. Congests 4 nearby edges (electromagnetic interference)
+    # This captures the spatially-correlated nature of storm damage.
+    # Ref: [Markopoulou et al., INFOCOM 2004 — correlated IP backbone failures]
+    # Ref: [Roumeliotis2025Multi — multi-element group failures]
+    # =========================================================================
+    lightning_strike:
+      type_object: global
+      action_type: lightning_strike
+      frequency:
+        type: exponential
+        scale: 90  # Mean inter-arrival of ~90s between lightning strikes.
+                   # A severe thunderstorm produces 3-10 cloud-to-ground
+                   # strikes per minute within a 10km radius.
+                   # Ref: [Rakov & Uman, "Lightning: Physics and Effects", 2003]
+      impact:
+        composed_of:
+          # --- Sub-action 1: Disable a cluster of 3 proximate nodes ---
+          - type_object: graph_node
+            action_type: disable_node
+            impact_params:
+              target_resolution:
+                mode: group
+                group_config:
+                  strategy: random_proximity  # Select a random anchor node
+                                              # and its 2 nearest neighbors —
+                                              # lightning affects a local area.
+                                              # Ref: [Li2020Privacy]
+                  num_elements: 3  # 3 nodes affected per strike —
+                                   # typical blast radius of a power surge
+                                   # affecting a distribution transformer.
+                                   # Ref: [Billinton & Allan, "Reliability
+                                   #        Evaluation of Power Systems", 1996]
+              distribution_to_enable_node:
+                type: lognormal
+                mean: 3.5   # Longer MTTR for lightning damage — requires
+                            # hardware inspection and possible replacement.
+                sigma: 1.2  # High variance — minor vs. major damage
+
+          # --- Sub-action 2: Congest 4 nearby edges ---
+          - type_object: graph_edge
+            action_type: congest_edge
+            impact_params:
+              target_resolution:
+                mode: group
+                group_config:
+                  strategy: random  # Random edge selection — electromagnetic
+                                    # interference affects unpredictable links.
+                  num_elements: 4   # 4 edges congested per strike
+              target_attributes_loss: ["bandwidth"]
+              target_attributes_multiplier: ["delay"]
+              p_loss_dist:
+                type: beta
+                a: 3
+                b: 2  # Mean ~0.6 (60% bandwidth loss) — severe congestion
+                       # from electromagnetic interference and rerouting.
+              multiplier_dist:
+                type: lognormal
+                mean: 1.2    # Median ~3.3x delay increase
+                sigma: 0.4
+              distribution_to_clear_edge:
+                type: lognormal
+                mean: 2.5
+                sigma: 1.0

@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Any, Dict, Optional, Tuple, List
 from src.constants import INFEASIBLE_PENALTY, PENALTY_DELAY, DEFAULT_INFRA_ID
 from .base_solver import BaseSolver
@@ -31,7 +32,8 @@ class GreedySolver(BaseSolver):
         user_set: Any,
         config: Dict[str, Any],
         previous_placement: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[Optional[Dict[str, Any]], float]:
+    ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+        start_time = time.time()
         if config is None:
             config = {}
 
@@ -40,7 +42,12 @@ class GreedySolver(BaseSolver):
         graph = graph_dict.get_main_graph()
         if graph is None:
             logger.error("Main graph not found in InfrastructureSet.")
-            return None, infeasible_penalty
+            return None, {
+                "objective": infeasible_penalty,
+                "total_latency": infeasible_penalty,
+                "solver_status": "Infeasible",
+                "solve_time_seconds": 0.0
+            }
 
         graph_item = graph_dict.infrastructures.get(DEFAULT_INFRA_ID, {})
         all_pairs_shortest_paths = graph_item.get('shortest_paths', {})
@@ -50,7 +57,13 @@ class GreedySolver(BaseSolver):
 
         active_nodes = [n for n, attrs in graph.nodes(data=True) if attrs.get('enable', True)]
         if not active_nodes:
-            return None, infeasible_penalty
+            logger.warning("GreedySolver: No active nodes found in graph.")
+            return None, {
+                "objective": infeasible_penalty,
+                "total_latency": infeasible_penalty,
+                "solver_status": "Infeasible",
+                "solve_time_seconds": 0.0
+            }
 
         # 1. Initialize remaining resource capacities per active node
         remaining_resources: Dict[Any, Dict[str, float]] = {}
@@ -161,69 +174,35 @@ class GreedySolver(BaseSolver):
                 logger.warning(
                     f"GreedySolver: Infeasible placement for application '{app_name}'. Not enough resources."
                 )
-                return None, infeasible_penalty
+                solve_time = round(time.time() - start_time, 4)
+                return None, {
+                    "objective": infeasible_penalty,
+                    "total_latency": infeasible_penalty,
+                    "solver_status": "Infeasible",
+                    "solve_time_seconds": solve_time
+                }
 
-        # 4. Compute total weighted latency cost matching ILP evaluation
-        total_latency = self._compute_total_latency(
-            placement, applications, users, active_nodes, all_pairs_shortest_paths, infeasible_penalty
+        # 4. Check topological connectivity and compute weighted mean latency
+        solve_time = round(time.time() - start_time, 4)
+        is_connected = self.check_topological_connectivity(
+            placement, applications, users, active_nodes, all_pairs_shortest_paths
         )
-        return placement, total_latency
 
-    def _compute_total_latency(
-        self,
-        placement: Dict[str, Dict[str, Any]],
-        applications: Dict[str, Any],
-        users: Dict[str, Any],
-        active_nodes: List[Any],
-        all_pairs_shortest_paths: Dict[Any, Dict[Any, float]],
-        infeasible_penalty: float = INFEASIBLE_PENALTY,
-    ) -> float:
-        total_latency = 0.0
+        if not is_connected:
+            return None, {
+                "objective": infeasible_penalty,
+                "total_latency": infeasible_penalty,
+                "solver_status": "Disconnected",
+                "solve_time_seconds": solve_time
+            }
 
-        def get_delay(source_node: Any, target_node: Any) -> float:
-            if source_node == target_node:
-                return 0.0
-            paths_from_source = all_pairs_shortest_paths.get(source_node, {})
-            return float(paths_from_source.get(target_node, infeasible_penalty))
+        mean_latency = self.compute_weighted_mean_latency(
+            placement, applications, users, active_nodes, all_pairs_shortest_paths
+        )
 
-        # 1. User Latency: Delay to the FIRST microservice of the requested app
-        for user_id, user_data in users.items():
-            requested_app_id = user_data.get('requestedApp')
-            user_home_node = user_data.get('connectedTo')
-
-            if requested_app_id in applications and user_home_node in active_nodes:
-                app_data = applications[requested_app_id]
-                app_name = app_data['name']
-                microservices = app_data.get('microservices', [])
-                if not microservices:
-                    continue
-                first_ms_id = microservices[0]['id']
-
-                ms_node = placement.get(app_name, {}).get(first_ms_id)
-                if ms_node is not None:
-                    delay_value = get_delay(user_home_node, ms_node)
-                    total_latency += delay_value * float(user_data.get('requestRatio', 0.0))
-
-        # 2. Internal SFC Latency: Delay between microservices
-        for app_id, app_data in applications.items():
-            app_name = app_data['name']
-            edges = app_data.get('edges', [])
-
-            app_request_ratio = sum(
-                float(u.get('requestRatio', 0.0))
-                for u in users.values()
-                if u.get('requestedApp') == app_id
-            )
-            if app_request_ratio == 0:
-                app_request_ratio = 1.0
-
-            for edge in edges:
-                ms_source = edge.get('source')
-                ms_target = edge.get('target')
-                n1 = placement.get(app_name, {}).get(ms_source)
-                n2 = placement.get(app_name, {}).get(ms_target)
-                if n1 is not None and n2 is not None:
-                    delay_value = get_delay(n1, n2)
-                    total_latency += delay_value * app_request_ratio
-
-        return total_latency
+        return placement, {
+            "objective": mean_latency,
+            "total_latency": mean_latency,
+            "solver_status": "Optimal",
+            "solve_time_seconds": solve_time
+        }

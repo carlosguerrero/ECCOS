@@ -1,0 +1,609 @@
+# =============================================================================
+# ECCOS Experiment 2: Localized Crowd-Driven Service Degradation
+#                     — Stadium / Protest / Concert
+# =============================================================================
+# Narrative: A large public event (football match, protest, concert) draws
+# a massive crowd into a single geographic hotspot. All users converge on
+# one location, overwhelm local edge servers and cell towers, and leave
+# after a fixed duration (event ends). Periodic "crowd surge" composed
+# events inject bursts of new attendees who all use the same app (the
+# official event app, streaming service, etc.).
+#
+# Key design decisions for this scenario:
+#   - 1 single hotspot with very tight spread (the venue)
+#   - Fixed user lifetime (everyone leaves when the event ends)
+#   - Faster user movement (crowd is actively moving within the venue)
+#   - Composed crowd_surge event creates large user bursts
+#   - Very high edge congestion and node degradation near the venue
+#   - Only 3 apps that persist throughout the entire simulation
+#
+# Topology: multi_tier — realistic Cloud-Fog-Edge hierarchy
+# Architecture: monolithic — simplified to focus on demand pressure
+# =============================================================================
+
+scenario_name: crowd_event
+
+seeds:
+  master: 200  # Fixed seed for full reproducibility
+
+# =============================================================================
+# INFRASTRUCTURE
+# =============================================================================
+infrastructure:
+  num_nodes: 50  # Mid-scale MEC deployment
+                 # Ref: [Armeniakos2025Stochastic]
+
+  model:
+    name: multi_tier  # Composite Cloud-Fog-Edge topology
+                      # Ref: [Armeniakos2025Stochastic; Fernando2025On]
+    cloud:
+      percentage: 2   # ~1 cloud node (2% of 50)
+    fog:
+      percentage: 10  # ~5 fog gateways (10% of 50)
+      m: 2            # 2 edges per new fog node
+    edge:
+      radius: 0.15   # Slightly larger radius to ensure connectivity
+    layer:
+      mode: centrality_based_layer
+      thresholds:
+        cloud_min: 0.10
+        fog_min: 0.02
+
+  # ---------------------------------------------------------------------------
+  # NODE ATTRIBUTES
+  # ---------------------------------------------------------------------------
+  node:
+    attributes:
+      ram:
+        mode: centrality_based
+        centrality_type: direct_proportional
+        distribution:
+          type: pareto  # Ref: [Reiss et al., EuroSys 2012]
+          a: 1.16
+          cloud:
+            type: uniform
+            low: 100000.0
+            high: 100000.0
+        min: 4.0   # Small edge devices near the venue (4 GB)
+        max: 32.0  # Up to 32 GB for larger fog nodes
+      cpu:
+        mode: centrality_based
+        centrality_type: direct_proportional
+        distribution:
+          type: pareto
+          a: 1.16
+          cloud:
+            type: uniform
+            low: 100000.0
+            high: 100000.0
+        min: 2.0
+        max: 16.0
+
+    # -------------------------------------------------------------------------
+    # NODE EVENTS — RARE failures, FREQUENT degradation from crowd overload
+    # -------------------------------------------------------------------------
+    actions:
+      disable_node:
+        frequency:
+          type: exponential
+          scale: 500  # Very rare hardware failures — infrastructure is healthy
+                      # Ref: [Gill et al., DSN 2011]
+        impact:
+          distribution_to_enable_node:
+            type: lognormal
+            mean: 2.0
+            sigma: 0.8
+
+      degrade_node:
+        frequency:
+          type: exponential
+          scale: 30  # EXTREMELY FREQUENT degradation — edge servers at the
+                     # venue are overwhelmed by the massive concentrated demand.
+                     # Thermal throttling, memory pressure, and OS contention.
+                     # More aggressive than before (was 40) because all users
+                     # are now concentrated in a single hotspot.
+                     # Ref: [Bantock2020Mitigating]
+        impact:
+          target_attributes: ["ram", "cpu"]
+          p_loss_dist:
+            type: beta
+            a: 3
+            b: 4  # Mean ~0.43 — heavier capacity loss than before (was 0.29)
+                   # because the single-hotspot scenario creates extreme
+                   # localized pressure on a small number of edge nodes.
+                   # Ref: [Xu et al., SOSP 2018]
+          distribution_to_restore_node:
+            type: exponential
+            scale: 25  # Slightly slower recovery — sustained demand keeps
+                       # nodes under pressure throughout the event.
+
+  # ---------------------------------------------------------------------------
+  # EDGE ATTRIBUTES
+  # ---------------------------------------------------------------------------
+  edge:
+    attributes:
+      delay:
+        mode: homogenic
+        distribution:
+          type: lognormal
+          mean: 1.5   # Ref: [Hao et al., IMC 2010]
+          sigma: 0.8
+
+    # -------------------------------------------------------------------------
+    # EDGE EVENTS — VERY FREQUENT congestion from concentrated traffic
+    # -------------------------------------------------------------------------
+    actions:
+      disable_edge:
+        frequency:
+          type: exponential
+          scale: 400  # Rare link failures
+        impact:
+          distribution_to_enable_edge:
+            type: lognormal
+            mean: 2.0
+            sigma: 0.8
+
+      congest_edge:
+        frequency:
+          type: exponential
+          scale: 20  # EXTREMELY FREQUENT — all cell towers near the single
+                     # venue are saturated. A single macro cell can serve
+                     # 50,000+ devices, causing severe congestion.
+                     # More aggressive than before (was 25) due to single
+                     # hotspot concentration.
+                     # Ref: [Zhang2022Optimal; Pujol et al., IMC 2015]
+        impact:
+          target_attributes_loss: ["bandwidth"]
+          target_attributes_multiplier: ["delay"]
+          p_loss_dist:
+            type: beta
+            a: 4
+            b: 3  # Mean ~0.57 — heavy bandwidth loss. More severe than
+                   # before (was 0.5) because all traffic funnels through
+                   # the same few cell towers near the venue.
+                   # Ref: [Shafiq et al., IMC 2013]
+          multiplier_dist:
+            type: lognormal
+            mean: 0.8    # Higher delay inflation (~2.2x median)
+            sigma: 0.3
+          distribution_to_clear_edge:
+            type: exponential
+            scale: 15  # Congestion doesn't fully clear — crowd is persistent
+
+# =============================================================================
+# APPLICATIONS — DYNAMIC popularity and demand shifts
+# =============================================================================
+app:
+  num_apps: 3   # *** VERY FEW APPS — models a stadium/protest where only
+                # 2-3 services matter: the official event app, a streaming
+                # service (YouTube/Twitch), and a social media platform
+                # (Twitter/X, WhatsApp). These apps persist for the entire
+                # simulation duration.
+  architecture: monolithic
+
+  services:
+    network:
+      delay:
+        distribution:
+          type: uniform
+          low: 5.0    # Tight latency for real-time streaming, AR overlays
+          high: 30.0  # Ref: [3GPP TS 23.501]
+      bandwidth:
+        distribution:
+          type: uniform
+          low: 20.0    # Higher bandwidth for video sharing at events
+          high: 150.0  # Ref: [Cisco Annual Internet Report 2023]
+    topology_model: directed_scale_free
+    scale_free_settings:
+      initial_nodes: 2
+      edges_per_node: 2
+    num_services_range: [3, 8]
+    profiles:
+      iot:
+        prob: 0.15  # Very little IoT at a stadium/protest — mostly phones
+        attributes:
+          cpu:
+            distribution:
+              type: lognormal
+              mean: 0.2
+              sigma: 0.5
+          ram:
+            distribution:
+              type: lognormal
+              mean: 0.2
+              sigma: 0.5
+      video:
+        prob: 0.55  # 55% video streaming — live broadcasts, video calls,
+                    # TikTok/Instagram stories from the event.
+                    # Ref: [Cisco Annual Internet Report 2023]
+        attributes:
+          cpu:
+            distribution:
+              type: lognormal
+              mean: 2.5
+              sigma: 1.0
+          ram:
+            distribution:
+              type: lognormal
+              mean: 3.5
+              sigma: 1.5
+      social:
+        prob: 0.30  # 30% social media — photo sharing, live tweeting,
+                    # WhatsApp groups. Higher than before because crowd
+                    # events drive massive social media usage.
+                    # Ref: [Benevenuto et al., IMC 2009]
+        attributes:
+          cpu:
+            distribution:
+              type: lognormal
+              mean: 1.0
+              sigma: 0.8
+          ram:
+            distribution:
+              type: lognormal
+              mean: 1.5
+              sigma: 1.0
+
+  popularity:
+    distribution:
+      type: zipf
+      a: 1.2   # Moderate skew — with only 3 apps, a high Zipf exponent
+               # would make 2 of them nearly unused. a=1.2 gives a more
+               # balanced but still realistic distribution across the 3.
+               # Ref: [Breslau et al., INFOCOM 1999]
+               # Ref: [Pujol et al., IMC 2015 — event-driven traffic skew]
+    local_app_ratio: 0.6  # 60% of apps are location-dependent — event-specific
+                          # apps (stadium app, local transit, AR overlays).
+    local_radius_influence: 0.15  # Tighter influence radius — the venue
+                                  # is a compact geographic area
+
+  num_new_users:
+    type: integers
+    low: 8
+    high: 12  # *** MANY users per app — with only 3 apps, each one needs
+              # a large initial user base to model the crowd. 3 apps × ~10
+              # users = ~30 users total, matching num_users.
+
+  # ---------------------------------------------------------------------------
+  # APPLICATION EVENTS — HIGH frequency for popularity/demand shifts
+  # ---------------------------------------------------------------------------
+  actions:
+    remove_app:
+      frequency:
+        type: exponential
+        scale: 99999  # *** EFFECTIVELY DISABLED — the 3 core apps persist
+                      # for the entire simulation. A stadium's official app,
+                      # streaming service, and social media platform don't
+                      # disappear mid-event.
+
+    update_app_footprint:
+      frequency:
+        type: exponential
+        scale: 50  # FREQUENT footprint changes — auto-scaling under extreme
+                   # localized load. More frequent than before (was 60).
+                   # Ref: [Cortez et al., ATC 2017]
+      impact:
+        sigma_footprint:
+          type: uniform
+          low: 0.10
+          high: 0.25  # Larger footprint variations due to extreme demand
+
+    update_app_network:
+      frequency:
+        type: exponential
+        scale: 60  # Frequent — network demands spike with user count
+      impact:
+        sigma_net:
+          type: uniform
+          low: 0.08
+          high: 0.20
+
+    update_app_topology:
+      frequency:
+        type: exponential
+        scale: 100
+      impact:
+        l_min:
+          type: integers
+          low: 2
+          high: 3
+        l_max_global:
+          type: integers
+          low: 8
+          high: 10
+
+    surge_popularity:
+      frequency:
+        type: exponential
+        scale: 35  # VERY FREQUENT — goals, viral moments, protest escalations
+                   # Ref: [Jung et al., WWW 2002 — Flash Crowds]
+      impact:
+        transient_prob:
+          type: uniform
+          low: 0.85
+          high: 0.85
+        duration_dist:
+          type: weibull
+          a: 1.8
+          scale: 8.0  # Ref: [Crane & Sornette, PNAS 2008]
+
+    drop_popularity:
+      frequency:
+        type: exponential
+        scale: 80  # Less frequent than surges — crowd maintains interest
+                   # during the event. Increased from 60 to reflect that
+                   # people at a stadium don't lose interest easily.
+      impact:
+        transient_prob:
+          type: uniform
+          low: 0.9
+          high: 0.9
+        duration_dist:
+          type: weibull
+          a: 1.5
+          scale: 8.0
+
+    geo_demand_shift:
+      frequency:
+        type: exponential
+        scale: 15  # VERY FREQUENT hotspot shifts — halftime, route changes
+                   # Ref: [Camp et al., 2002; Wang2019Delay]
+      impact:
+        jump_prob:
+          type: uniform
+          low: 0.3
+          high: 0.3
+        drift_dist:
+          type: normal
+          mean: 0.0
+          sigma: 0.10
+
+# =============================================================================
+# USERS — MASSIVE density at a SINGLE hotspot, FAST movement, FIXED lifetime
+# =============================================================================
+user:
+  num_users: 30  # 60% of 50 nodes = 30 initial users.
+                 # Very high density — large crowd already present when
+                 # the event starts. Double the original scenario.
+
+  spatial_distribution:
+    model: thomas_cluster
+    hotspots: 1   # *** SINGLE hotspot — the venue (stadium, plaza, route start).
+                  # All users spawn within a tight radius of this single point,
+                  # modeling a crowd event where everyone is at the same location.
+    spread: 0.015 # Extremely tight clustering — the entire crowd is packed
+                  # into a small area around the venue entrance/seating.
+                  # Tighter than before (was 0.02 with 3 hotspots).
+                  # Ref: [Saha2016Enriched]
+
+  spatial_region:
+    width: 2.0
+    height: 2.0
+    num_vertical_streets: 15
+    num_horizontal_streets: 15
+
+  mobility:
+    model: manhattan
+    turn_probabilities:
+      straight: 0.40  # Slightly lower straight tendency — crowd is milling
+                      # around the venue, changing direction more often.
+      left: 0.30
+      right: 0.30
+    speed:
+      type: uniform
+      low: 0.015   # *** FASTER than before (was 0.008-0.025).
+                    # People at events move more briskly — walking between
+                    # entrance gates, concession stands, exits, fan zones.
+                    # ~1.5-2.5 m/s in moderate crowd density.
+                    # Ref: [Weidmann, 1993; Helbing et al., Nature 2000]
+      high: 0.040   # Fast movers — people running to their seats, exiting
+                    # quickly after the event, or rushing to catch transport.
+    coverage_radius:
+      type: normal
+      mean: 0.15
+      sigma: 0.02
+
+  request_ratio:
+    type: exponential
+    scale: 12  # *** HIGHER baseline request rate (was 8).
+               # Everyone at the event is actively using their phone:
+               # streaming video, posting on social media, messaging.
+               # Ref: [Pujol et al., IMC 2015]
+
+  request_popularity:
+    type: uniform
+    low: 0.0
+    high: 1.0
+
+  # ---------------------------------------------------------------------------
+  # USER EVENTS — FIXED lifetime, FAST movement, FREQUENT activity changes
+  # ---------------------------------------------------------------------------
+  actions:
+    remove_user:
+      frequency:
+        type: uniform
+        low: 300    # *** FIXED LIFETIME — all users live exactly 300 time units.
+        high: 300   # Using uniform(300, 300) guarantees a deterministic lifetime.
+                    # This models the event duration: all attendees arrive,
+                    # stay for the event, and leave when it ends.
+                    # After 300 time units, the user is removed and all their
+                    # associated events (move, change_request_ratio, etc.)
+                    # are automatically cleaned up by remove_events_by_object_id.
+
+    suspend_user:
+      frequency:
+        type: exponential
+        scale: 80  # Moderate disconnections — network congestion causes
+                   # dropped connections, especially near the single hotspot.
+                   # Slightly more frequent than before (was 100) due to
+                   # concentration of traffic.
+                   # Ref: [Haibeh2022A]
+      impact:
+        resume_user:
+          type: lognormal
+          mean: 0.8
+          sigma: 0.4
+
+    move_user:
+      frequency:
+        type: exponential
+        scale: 20  # *** VERY FREQUENT movement (was 30) — crowd is constantly
+                   # shifting: going to seats, restrooms, concessions, exits.
+                   # Combined with faster speed, this creates a very dynamic
+                   # spatial distribution.
+                   # Ref: [Bettstetter2004Stochastic]
+
+    change_request_ratio:
+      frequency:
+        type: exponential
+        scale: 40  # *** MORE FREQUENT activity changes (was 50).
+                   # At a stadium, usage spikes happen constantly: goals,
+                   # halftime shows, controversial calls, wave starts.
+                   # Ref: [Li2023Estimating]
+      impact:
+        increase_probability: 0.70  # 70% increase (active moments dominate
+                                    # at a live event) / 30% decrease
+        multiplier:
+          type: uniform
+          low: 2.5   # *** LARGER multiplier (was 2.0-4.0) — crowd-driven
+          high: 5.0  # bursts are more extreme at single-venue events.
+                     # Ref: [Pujol et al., IMC 2015]
+        restore_ratio:
+          type: lognormal
+          mean: 0.8
+          sigma: 0.4
+
+# =============================================================================
+# GLOBAL SPAWNER — Continuous user arrivals + crowd surge bursts
+# =============================================================================
+global_spawner:
+  actions:
+    # --- Steady-state user arrival (people trickling into the venue) ---
+    new_user:
+      type_object: user
+      action_type: new_user
+      frequency:
+        type: exponential
+        scale: 15  # Faster arrivals than before (was 20) — steady stream
+                   # of attendees entering the venue.
+
+    # --- New apps (effectively disabled) ---
+    new_app:
+      type_object: app
+      action_type: new_app
+      frequency:
+        type: exponential
+        scale: 99999  # *** EFFECTIVELY DISABLED — no new apps appear during
+                      # the event. The 3 initial apps are the only ones.
+      impact:
+        num_new_users: 2
+
+    # =========================================================================
+    # COMPOSED EVENT: Crowd Surge (Goal Scored / Protest Escalation)
+    # =========================================================================
+    # Models a sudden massive influx of activity when a significant moment
+    # occurs (goal scored, speaker starts, halftime rush). Simultaneously:
+    #   1. Creates 20 new users (a wave of people arriving/activating phones)
+    #   2. Surges popularity of 3 apps (viral content sharing)
+    #   3. Congests 4 nearby edges (traffic spike at cell towers)
+    #   4. Increases request ratio for 8 users (everyone refreshes)
+    #
+    # The 20 new users will all have the same fixed lifetime (300 time units)
+    # defined in the user.actions.remove_user config, so they will naturally
+    # "leave" the event after the same duration as everyone else.
+    #
+    # Ref: [Pujol et al., IMC 2015 — event-driven mobile traffic patterns]
+    # Ref: [Crane & Sornette, PNAS 2008 — social system response function]
+    # =========================================================================
+    crowd_surge:
+      type_object: global
+      action_type: crowd_surge
+      frequency:
+        type: exponential
+        scale: 80  # One crowd surge every ~80s on average.
+                   # Football matches have ~10-15 exciting moments in 90 min.
+                   # Protests have periodic escalation waves.
+                   # Ref: [Pujol et al., IMC 2015]
+      impact:
+        composed_of:
+          # --- Sub-action 1: Create 20 new users (burst of attendees) ---
+          # Each call to new_user creates one user. With num_elements: 20,
+          # resolve_targets returns 20 existing user IDs (used as seeds),
+          # but new_user() ignores the target_id and creates a brand new
+          # user each time. All new users inherit the same config: single
+          # hotspot spawn, fixed 300s lifetime, fast movement.
+          - type_object: user
+            action_type: new_user
+            impact_params:
+              target_resolution:
+                mode: group
+                group_config:
+                  strategy: random
+                  num_elements: 20  # 20 new users per crowd surge wave
+
+          # --- Sub-action 2: Surge popularity of 3 nearby apps ---
+          - type_object: app
+            action_type: surge_popularity
+            impact_params:
+              target_resolution:
+                mode: group
+                group_config:
+                  strategy: random_proximity
+                  num_elements: 3
+              transient_prob:
+                type: uniform
+                low: 0.90
+                high: 0.90  # 90% transient — excitement fades quickly
+              duration_dist:
+                type: weibull
+                a: 2.0
+                scale: 15.0  # ~15s average surge duration — slightly longer
+                             # than before because stadium moments sustain
+                             # attention (replays, celebrations).
+
+          # --- Sub-action 3: Congest 4 edges near the venue ---
+          - type_object: graph_edge
+            action_type: congest_edge
+            impact_params:
+              target_resolution:
+                mode: group
+                group_config:
+                  strategy: random
+                  num_elements: 4  # More edges congested (was 3) — single
+                                   # hotspot means ALL nearby towers suffer
+              target_attributes_loss: ["bandwidth"]
+              target_attributes_multiplier: ["delay"]
+              p_loss_dist:
+                type: beta
+                a: 4
+                b: 2  # Mean ~0.67 — SEVERE bandwidth loss during surge.
+                       # Much heavier than steady-state congestion because
+                       # everyone uploads/streams simultaneously.
+              multiplier_dist:
+                type: lognormal
+                mean: 1.0
+                sigma: 0.3  # ~2.7x delay inflation — very heavy
+              distribution_to_clear_edge:
+                type: exponential
+                scale: 20  # Takes ~20s for congestion to clear after surge
+
+          # --- Sub-action 4: Spike request ratio for 8 nearby users ---
+          - type_object: user
+            action_type: change_request_ratio
+            impact_params:
+              target_resolution:
+                mode: group
+                group_config:
+                  strategy: random_proximity
+                  num_elements: 8  # More users affected (was 5) — at a
+                                   # single venue, the surge reaches more
+                                   # people simultaneously
+              increase_probability: 1.0  # Always increase during crowd surge
+              multiplier:
+                type: uniform
+                low: 3.0    # *** LARGER spike (was 2.5-5.0)
+                high: 6.0   # Everyone refreshes, uploads, streams at once
+              restore_ratio:
+                type: lognormal
+                mean: 0.5
+                sigma: 0.3  # Quick restoration — excitement is short-lived

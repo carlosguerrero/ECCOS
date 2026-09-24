@@ -1,7 +1,62 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "serviceplacementdataset"
-version = "0.1.0"
-description = "Add your description here"
+name = "eccos-simulator"
+version = "1.0.0"
+description = "Event-Driven Computing Continuum Orchestration Solver (ECCOS): A Discrete-Event Simulation Framework for Optimal Service Placement and ML-Ready Trace Generation"
 readme = "README.md"
-requires-python = ">=3.12"
-dependencies = []
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Mireia Jaume" },
+    { name = "Isaac Lera", email = "isaac.lera@uib.es" },
+    { name = "Carlos Guerrero", email = "carlos.guerrero@uib.es" }
+]
+maintainers = [
+    { name = "Carlos Guerrero", email = "carlos.guerrero@uib.es" }
+]
+keywords = [
+    "computing-continuum",
+    "edge-computing",
+    "fog-computing",
+    "discrete-event-simulation",
+    "service-placement-problem",
+    "integer-linear-programming",
+    "machine-learning-datasets",
+    "reinforcement-learning"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent"
+]
+dependencies = [
+    "networkx>=3.2",
+    "numpy>=1.26",
+    "PuLP>=2.8",
+    "PyYAML>=6.0",
+    "matplotlib>=3.8",
+    "pandas>=2.2",
+    "graphviz>=0.20",
+    "jsonschema>=4.20"
+]
+
+[project.scripts]
+eccos = "main:main"
+eccos-batch = "run_experiments:main"
+
+[tool.setuptools]
+py-modules = ["main", "run_experiments"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+

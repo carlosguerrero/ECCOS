@@ -1,194 +1,328 @@
-# GAIM — Service Placement Simulator for the Computing Continuum
+# ECCOS: Event-Driven Computing Continuum Orchestration Solver
 
-GAIM is an event-driven simulator written in Python for studying the dynamic placement of applications in Computing Continuum (CC) environments — traditionally known as Fog or Edge Computing. It generates a synthetic infrastructure, populates it with applications and users whose behaviour evolves over time, and at every simulation step solves an Integer Linear Program (ILP) that decides on which node each application should run so that total user-weighted latency is minimized under RAM capacity constraints.
+[![Python Version](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Framework: ECCOS](https://img.shields.io/badge/Framework-ECCOS-brightgreen.svg)](#architecture-and-modular-design)
+[![Artifact Evaluation](https://img.shields.io/badge/Artifact-Reproducible-success.svg)](#reproducing-the-paper-experiments)
+[![Citation](https://img.shields.io/badge/Citation-BibTeX-orange.svg)](#how-to-cite)
 
-The simulator is fully YAML-driven and fully seeded: every stochastic decision is derived from one of four domain-specific random generators, which makes experiments reproducible across machines and operating systems.
+**ECCOS** (*Event-Driven Computing Continuum Orchestration Solver*) is a discrete-event simulation framework designed for modeling dynamic service placement, network entropy, and optimization in Computing Continuum (Cloud-Fog-Edge) environments. 
 
----
-
-## Table of contents
-
-- [Features](#features)
-- [Project structure](#project-structure)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Running a simulation](#running-a-simulation)
-- [Configuration (`config_random.yaml`)](#configuration-config_randomyaml)
-- [Outputs](#outputs)
-- [Visualization](#visualization)
-- [Reproducibility](#reproducibility)
-- [Extending the simulator](#extending-the-simulator)
+Developed as an open-source research platform, ECCOS bridges the gap between low-level packet simulators and macroscopic analytical models. It natively couples declarative scenario definition with mathematically grounded optimization engines (ILP and heuristics), outputting high-dimensional, telemetry-rich traces explicitly structured for training Supervised and Reinforcement Learning (RL) models.
 
 ---
 
-## Features
+## Table of Contents
 
-- **Scale-free infrastructure** — Barabási–Albert topology by default, with optional Erdős–Rényi, Watts–Strogatz, and balanced-tree models.
-- **Heterogeneous, degree-correlated resources** — RAM drawn from a Pareto distribution and assigned in decreasing order of node degree, so well-connected hubs get the most memory (80/20 pattern).
-- **Stochastic dynamics** — users arrive, leave, move, and change their request ratio; applications gain and lose popularity; nodes and edges fail and recover. Every event type has its own tunable distribution.
-- **ILP-based service placement** — at every iteration, PuLP + CBC solves a binary ILP that minimizes total weighted latency subject to per-node RAM capacity.
-- **Shortest-path caching** — all-pairs Dijkstra paths are cached on the infrastructure object and recomputed only when the topology changes.
-- **YAML-driven configuration** — all distributions, counts and saturation targets are declared in a single YAML file, not hardcoded in Python.
-- **Reproducibility by design** — four independent `numpy.random.Generator` instances (one per simulation domain) are seeded from a single master seed.
-- **Rich logging** — per-iteration JSON snapshots, per-iteration GML graphs, and a CSV log of user counts.
+- [Key Contributions](#key-contributions)
+- [Architecture and Modular Design](#architecture-and-modular-design)
+- [Prerequisites and Installation](#prerequisites-and-installation)
+- [Running Simulations (General Usage)](#running-simulations-general-usage)
+- [Reproducing the Paper Experiments](#reproducing-the-paper-experiments)
+- [Generating Publication Plots](#generating-publication-plots)
+- [Regenerating Architectural & UML Diagrams](#regenerating-architectural--uml-diagrams)
+- [Project Directory Structure](#project-directory-structure)
+- [Research Methodology: Spec-Driven Development](#research-methodology-spec-driven-development)
+- [How to Cite](#how-to-cite)
+- [Funding & Acknowledgments](#funding--acknowledgments)
+- [License](#license)
 
 ---
 
-## Project structure
+## Key Contributions
 
+1. **Scalable Dataset Generation for Machine Learning:** Natively produces structured output traces rich in state variables, topological states, and reward metrics for continuous ML/RL training.
+2. **Modular Architecture & Decoupled Solvers:** Logical decoupling between scenario generation, stochastic event queues, system state accounting, and placement solvers (Single/Multi-Objective ILP, Greedy, heuristics).
+3. **Fine-grained Declarative Configuration (YAML):** Fully declarative scenario definition (topologies, statistical distributions, event frequencies, and impacts) ensuring strict cross-platform reproducibility.
+4. **Rigorous Stochastic Modeling & Event Composition:** Extensive catalog of native base events (node degradation, link congestion, user disconnection, mobility drifts) with a composite event engine to simulate realistic phenomena (brownouts, flash crowds, electric storms).
+5. **Dynamic "Day 2" Lifecycle & SFC/DAGs:** Supports runtime elasticity, resource footprint variations, and multi-service workflows represented as Service Function Chains (SFC) or Directed Acyclic Graphs (DAG).
+
+---
+
+## Architecture and Modular Design
+
+ECCOS employs a modular, decoupled design structured around five foundational components:
+
+```mermaid
+flowchart TD
+    subgraph InitPhase ["1. Initialization Phase"]
+        YAML["YAML Config<br/>(Topology, Policies, Profiles)"] --> Architect["Ecco-Architect<br/>[Context Configuration Engine]"]
+    end
+
+    subgraph SimLoop ["2. Simulation Loop (Discrete-Event & Discrete-Time)"]
+        Generator["Ecco-Generator<br/>[Discrete-Event Stochastic Engine]"]
+        State["Ecco-State<br/>[System State Manager]"]
+        Solver["Ecco-Solver<br/>[Decoupled Optimization Engine]"]
+
+        Generator -- "1. Pops Event (t = t + Δt)" --> State
+        State -- "2. Evaluates Policy & Sends State" --> Solver
+        Solver -- "3. Solves ILP & Returns Placement" --> State
+        State -. "4. Schedules Future Events" .-> Generator
+    end
+
+    subgraph OutPhase ["3. Output & Integration Phase"]
+        Bridge["Ecco-Bridge<br/>[Data Integration & ML Interface]"]
+        JSON["ML-Ready Datasets<br/>(JSON / JSONL Snapshots)"]
+        Gym["Gymnasium Interface<br/>(RL Environment API)"]
+    end
+
+    Architect -- "Seeds Event Queue" --> Generator
+    Architect -- "Instantiates Graph, Users & Apps" --> State
+    State -- "Streams Telemetry & Observations" --> Bridge
+    Solver -- "Streams Actions & Rewards" --> Bridge
+    Bridge --> JSON
+    Bridge <--> Gym
 ```
-.
-├── main.py                  # Simulation entry point and ILP solver
-├── config_random.yaml       # Random-graph configuration (default)
-├── config_manual.yaml       # Manually-defined topology (optional)
-├── Documents                # Contains the Excel that explains the config YAML doc and some cited Research Papers
-├── visual_results.py        # Plots from the CSV log
-├── pyproject.toml
-├── .python-version
-└── src/
-    ├── __init__.py
-    ├── simulationSet.py     # Master-seeded, per-domain RNGs + YAML distribution parser
-    ├── eventSet.py          # Global event list + event scheduling
-    ├── infrastructure.py    # Graph generation + node/edge events
-    ├── appSet.py            # Application generation + app events
-    ├── userSet.py           # User generation + user events
-    ├── simulation.py        # Output folder, JSON/GML/CSV logging, stop conditions
-    └── utils/
-        ├── __init__.py
-        └── auxiliar_functions.py   # Centrality-aware node selection, mobility
-```
 
-## Requirements
+- **`Ecco-Architect`:** Parses the YAML configuration, validates schemas, and builds the synthetic multi-tier network graph, services, and user population.
+- **`Ecco-Generator`:** Manages the global discrete-event priority queue, scheduling base and composite actions according to domain-specific statistical distributions.
+- **`Ecco-State`:** Maintains the transactional state of the infrastructure (available capacities, degraded links), active applications (SFC chains, requirements), and connected users.
+- **`Ecco-Solver`:** Decoupled optimization backend. Formulates and solves placement as an Integer Linear Program (using PuLP/CBC) or heuristic algorithm under latency, migration, and resource constraints.
+- **`Ecco-Bridge`:** Telemetry and ingestion engine that transforms state transitions into high-dimensional, ML-ready datasets (JSON/CSV) and Gymnasium-compatible RL environments.
 
-- Python 3.12 or later
-- `numpy`
-- `networkx`
-- `pulp` (which pulls in the CBC solver)
-- `pyyaml`
-- `pandas` and `matplotlib` (only needed for `visual_results.py`)
+---
 
-## Installation
+## Prerequisites and Installation
 
-Clone the repository, create a virtual environment, and install the dependencies:
+### System Requirements
+- **Python:** 3.11 or later
+- **Graphviz System Binary:** (Required for rendering vector architecture figures)
+  - **macOS:** `brew install graphviz`
+  - **Ubuntu/Debian:** `sudo apt install graphviz`
+  - **Fedora/RHEL:** `sudo dnf install graphviz`
+
+### Setup Environment
 
 ```bash
-git clone <repository-url>
-cd servicePlacementDataset
+# 1. Clone the repository
+git clone https://github.com/carlosguerrero/ECCOS.git
+cd ECCOS
 
-python3.12 -m venv .venv
-source .venv/bin/activate         # On Windows: .venv\Scripts\activate
+# 2. Create and activate a Python virtual environment
+python3 -m venv .venv
+source .venv/bin/activate       # On Windows: .venv\Scripts\activate
 
-pip install numpy networkx pulp pyyaml pandas matplotlib
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. (Optional) Install the package in editable mode
+pip install -e .
 ```
 
-If you prefer `uv` (the project ships a `.python-version` file for it):
+---
+
+## Running Simulations (General Usage)
+
+The entry point `main.py` runs a standalone simulation using configurable scenario and solver YAML files:
 
 ```bash
-uv venv
-uv pip install numpy networkx pulp pyyaml pandas matplotlib
-```
-
-## Running a simulation
-
-From the project root:
-
-```bash
+# Run with default configuration (1000 iterations)
 python main.py
+
+# Run with custom parameters
+python main.py --scenario scenario_config.yaml --solver solver_config.yaml --iterations 2000 --seed 42
+
+# Validate configuration files against the schema without running
+python main.py --validate scenario_config.yaml
+# Or with the installed CLI:
+eccos --validate experiments/configuration_files/*.yaml
 ```
 
-The entry point performs the following steps, each of which is logged to stdout:
+### Command-Line Arguments for `main.py`
 
-1. Create a `SimulationSet` with master seed `42`.
-2. Load `config_random.yaml`.
-3. Generate the infrastructure (graph, RAM per node, delay per edge, betweenness centrality).
-4. Create applications up to the configured saturation percentage and, for each, one or more users tied to it.
-5. Schedule the initial recurring `new_user` event (Little's Law arrival process).
-6. Solve the ILP once to produce the initial placement.
-7. Run the event loop for up to 500 iterations, solving the ILP after every event.
+| Argument | Short | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--scenario` | `-s` | `scenario_config.yaml` | Path to the scenario configuration YAML file. |
+| `--solver` | `-c` | `solver_config.yaml` | Path to the solver & optimization objective configuration YAML. |
+| `--iterations` | `-i` | `1000` | Total number of discrete simulation steps. |
+| `--seed` | | `42` | Master random seed (guarantees bit-identical reproducibility). |
+| `--validate` | | *None* | Validates one or more YAML files against `config_schema.json` and exits. |
 
-A new timestamped folder is created under `Simulations_raw/` for each run, e.g. `Simulations_raw/Sim_20260422_103045/`.
 
-## Configuration (`config_random.yaml`)
+### Output Data
+Each execution generates a timestamped directory under `Simulations_raw/<scenario>_<solver>_<timestamp>/` containing:
+- `Simulation{i}.json`: Full snapshot before and after each event, including placement mapping, node capacity allocations, network delays, and triggered actions.
+- `execution.log`: Comprehensive execution trace with timing and solver metrics.
 
-The YAML file is organized in three top-level blocks:
+---
 
-- **`setup`** — generation mode (`random` or `manual`), number of nodes, and graph model.
-- **`model_params`** — parameters specific to the chosen graph model (`m` for Barabási–Albert, `p_rewire`/`k` for Watts–Strogatz, etc.).
-- **`attributes`** — per-domain attributes and actions for the `graph`, `app`, `user`, and `global_spawner` domains. Each action declares its firing distribution and, optionally, its multipliers.
+## Reproducing the Paper Experiments
 
-Distributions are written as strings that will be evaluated through the domain RNG, e.g.:
+The repository includes the exact YAML configurations used in the research paper. The batch runner `run_experiments.py` orchestrates these experiments under identical random seeds and parameters.
 
-```yaml
-user:
-  request_ratio: 'rng.exponential(5)'
-  actions:
-    move_user:
-      distribution: 'rng.exponential(120)'
-    increase_request_ratio:
-      distribution: 'rng.exponential(90)'
-      impact:
-        multiplier: 'rng.uniform(1, 3)'
+### Available Benchmark Scenarios
+
+| ID | Experiment Scenario | Configuration File | Simulated Phenomena |
+| :-: | :--- | :--- | :--- |
+| **1** | **Electric Storm** | `experiments/configuration_files/scenario_1_electric_storm.yaml` | Severe weather event triggering correlated node dropouts and edge failures across physical zones, testing failover and recovery. |
+| **2** | **Crowd Event** | `experiments/configuration_files/scenario_2_crowd_event.yaml` | Concentrated user influx (stadium/protest) creating an ultra-dense hotspot, fast user arrivals, and heavy localized service demand. |
+| **3** | **Demand Surge** | `experiments/configuration_files/scenario_3_demand_surge.yaml` | Sudden viral surge in service popularity combined with localized node/edge degradations (brownouts). |
+| **4** | **Normal Conditions** | `experiments/configuration_files/scenario_4_normal_conditions.yaml` | Steady-state baseline with standard Poisson/exponential arrivals, uniform mobility, and degree-correlated resource distribution. |
+
+### Running the Experiments
+
+```bash
+# List all available paper scenarios
+python run_experiments.py --list
+
+# Run all 4 paper experiments (default: 1000 iterations each)
+python run_experiments.py
+
+# Run all 4 experiments for 5000 iterations (paper production run)
+python run_experiments.py --iterations 5000
+
+# Run only specific scenarios (e.g., Scenario 1 and Scenario 2)
+python run_experiments.py --experiments 1 2 --iterations 1000
 ```
 
-The parser accepts any expression of the form `rng.<numpy_method>(...)` (or `np.<...>(...)`), evaluated in a restricted namespace. This means new distributions can be tried by editing a single YAML line — no Python changes required.
+---
 
-Two knobs control how the network is loaded:
+## Generating Publication Plots
 
-- `num_apps` — create a fixed number of applications (set `saturation_percentage: null`).
-- `saturation_percentage` — create applications until their total RAM demand reaches this fraction of the total infrastructure RAM (set `num_apps: null`).
+The orchestrator `experiments/run_all_plots.py` processes simulation output datasets and generates publication-quality vector figures (PDF) matching the paper's results.
 
-Exactly one of them must be set.
+```bash
+# Generate all plots for all 4 experiments (skipping per-step geo maps for faster run)
+python experiments/run_all_plots.py --skip-geo
 
-## Outputs
+# Run only specific plot families (e.g., Plot 16: Heatmap, Plot 17: User Tracks)
+python experiments/run_all_plots.py --only 16 17
 
-For each simulation run, the folder `Simulations_raw/Sim_<timestamp>/` contains:
+# Run plots for a specific experiment (e.g., Experiment 2: Crowd Event)
+python experiments/run_all_plots.py --experiments 2 --skip-geo
 
-- **`Simulation{i}.json`** — one JSON file per iteration, with:
-  - the state of users and applications **before** and **after** the event,
-  - the event that fired and the global simulation time,
-  - the optimal placement (`{app_name: node_id}`),
-  - per-node information (RAM total, RAM used, running apps, enabled flag),
-  - the total latency and the total RAM occupied,
-  - a `diff_message` describing changes with respect to the previous placement.
-- **`Simulation{i}_graph_before.gml`** and **`Simulation{i}_graph_after.gml`** — the NetworkX graph at each phase, stored in GML so it can be re-opened with `nx.read_gml(...)`.
-- **`user_counts_log.csv`** — one row per iteration with `Iteration`, `User Count`, and `Action`.
-
-The simulator halts automatically (via `stop_simulation`) if any iteration leaves the system with no applications, no users, no active nodes, or no active edges.
-
-## Visualization
-
-`visual_results.py` reads `user_counts_log.csv` and produces:
-
-- the evolution of the number of users over iterations (a direct empirical check of Little's Law — the curve should oscillate around $L = \lambda W$),
-- histograms of event counts per bin of 50 iterations, one per event family (`move_user`, `remove_user`, `new_user`, request-ratio events).
-
-Before running it, edit the `path_mac` / `path_linux` variables at the top of the file to point at the simulation folder you want to analyze.
-
-## Reproducibility
-
-Randomness flows through four independent generators, all seeded from the master seed passed to `SimulationSet`:
-
-```python
-self.rng_graph = np.random.default_rng(master_seed)      # topology, node/edge events
-self.rng_app   = np.random.default_rng(master_seed + 1)  # application attributes and events
-self.rng_user  = np.random.default_rng(master_seed + 2)  # user attributes and events
-self.rng_event = np.random.default_rng(master_seed + 3)  # global_spawner meta-events
+# Point to a custom simulation data directory
+python experiments/run_all_plots.py --data-dir experiments/simulation_json_outputs_results
 ```
 
-Using one generator per domain keeps the random sequences isolated: adding a new event type or changing the order in which users are created does not perturb the graph topology, and vice versa. Running `main.py` twice with the same master seed and the same YAML file produces bit-identical outputs.
+### Catalog of Generated Plots
 
-To change the seed, edit this line in `main.py`:
+| Plot ID | Metric / Visualization | Output File Prefix |
+| :-: | :--- | :--- |
+| **Plot 1** | System Overview (Active users, apps, nodes, edges) | `plot1_system_overview_` |
+| **Plot 2** | Step-by-Step Geolocation & Connectivity Maps | `plot2_geolocation_` |
+| **Plot 3** | Application Popularity Distribution | `plot3_app_popularity_` |
+| **Plot 4** | User Activity & State Transitions | `plot4_user_activity_` |
+| **Plot 5** | Node Resource Availability & Saturation | `plot5_node_availability_` |
+| **Plot 6** | Event Timeline (Discrete Steps) | `plot6_event_timeline_` |
+| **Plot 7** | Optimization Metric Evolution | `plot7_optimization_` |
+| **Plot 8** | Application Request Rate | `plot8_app_request_rate_` |
+| **Plot 9** | Single-Objective Placement Latency | `plot9_single_objective_` |
+| **Plot 10** | Event Timeline (Continuous Simulation Time) | `plot10_event_timeline_by_time_` |
+| **Plot 11** | Optimization Metric (by Time) | `plot11_optimization_by_time_` |
+| **Plot 12** | Single-Objective Latency (by Time) | `plot12_single_objective_by_time_` |
+| **Plot 13** | Node Availability (by Time) | `plot13_node_availability_by_time_` |
+| **Plot 14** | Application Migration Events | `plot14_app_migrations_` |
+| **Plot 15** | Application Request Rate Lines | `plot15_app_request_rate_lines_` |
+| **Plot 16** | User Mobility Heatmap (Intermediate & Final States) | `plot16_user_heatmap_` |
+| **Plot 17** | User Trajectory Tracks (Spatial Density) | `plot17_user_tracks_` |
 
-```python
-sim_set = SimulationSet(master_seed=42)
+*All generated graphics are saved in `experiments/figures/` in vector PDF format.*
+
+---
+
+## Regenerating Architectural & UML Diagrams
+
+The structural and UML diagrams presented in the paper can be regenerated from their declarative Graphviz source scripts:
+
+```bash
+# 1. Generate the main ECCOS Architecture diagram (Figure 1 in paper)
+python paper_figures/src/ECCOSdiagramPlot.py
+
+# 2. Generate the complete UML Ecosystem schema
+python paper_figures/src/UMLDiagramPlot.py
+
+# 3. Generate all modular UML subdiagrams (Infra, Users, Apps, Global)
+python paper_figures/src/UMLSubdiagramsPlot.py
 ```
 
-## Extending the simulator
+*Output PDFs are stored in [`paper_figures/figures/`](paper_figures/figures).*
 
-A few patterns worth knowing before modifying the code:
+---
 
-- **New action on an existing object** — add a method to the relevant set (`UserSet`, `ApplicationSet`, `InfrastructureSet`) and declare it under `attributes.<domain>.actions` in the YAML. The event loop dispatches by method name via `getattr`.
-- **New event parameters** — declare them under `impact` in the YAML; `EventSet.update_event_params` will inject live objects (e.g. the infrastructure, the event set itself) before the method is called.
-- **New distribution family** — as long as it is a `numpy.random.Generator` method, it is usable in the YAML without any code change (e.g. `rng.lognormal(0, 1)`).
-- **New graph model** — add a branch in `_generate_random_graph` in `infrastructure.py` and expose its parameters under `model_params` in the YAML.
-- **Multi-resource ILP** — the current formulation uses only RAM as a capacity constraint. Adding CPU, disk, or bandwidth constraints requires extending `solve_application_placement` in `main.py` with additional constraints of the same form as the existing RAM constraint.
+## Project Directory Structure
+
+```text
+servicePlacementDataset/
+├── .gitignore
+├── pyproject.toml                     # Modern PEP 621 package metadata & dependencies
+├── requirements.txt                   # Direct dependency specification
+├── LICENSE                            # Open source MIT License
+├── CITATION.cff                       # Citation metadata format
+├── README.md                          # Comprehensive documentation
+├── config_schema.json                 # JSON Schema validating scenario definitions
+├── scenario_config.yaml               # Default base scenario configuration
+├── solver_config.yaml                 # Default solver and objective weights
+├── main.py                            # Standalone simulation CLI entrypoint
+├── run_experiments.py                 # Automated batch experiment runner
+├── src/                               # ECCOS Simulation Engine Core
+│   ├── appSet.py                      # Application & microservice lifecycle logic
+│   ├── infrastructure.py              # Graph generation, routing & tier mapping
+│   ├── userSet.py                     # User population, mobility & request profiles
+│   ├── eventSet.py                    # Stochastic event queue & composite triggers
+│   ├── simulationSet.py               # Seeded random generators (per-domain RNG)
+│   ├── simulation_runner.py           # Core discrete-event execution loop
+│   ├── simulation.py                  # Snapshot serialization & telemetry logging
+│   ├── types.py                       # Enumerations and dataclasses
+│   ├── constants.py                   # Default thresholds and system constants
+│   ├── factories/                     # Network topology & graph factories
+│   └── solvers/                       # ILP & heuristic placement solvers
+├── experiments/                       # Paper Experiments and Evaluation
+│   ├── configuration_files/           # 4 Benchmark YAML scenario configurations
+│   ├── simulation_json_outputs_results/ # Raw simulation data traces
+│   ├── plotting_scripts/              # 17 specialized matplotlib plot modules
+│   ├── figures/                       # Rendered evaluation figures (PDF/PNG)
+│   └── run_all_plots.py               # Master plotting pipeline orchestrator
+├── paper_figures/                     # Architectural Figures for the Paper
+│   ├── src/                           # Standalone Graphviz generator scripts
+│   └── figures/                       # Vector architectural PDFs (Figure 1, UMLs)
+├── supporting_documents/              # Research Methodology and Technical Notes
+│   ├── spec_driven_catalog/           # Formal Spec-Driven Development specifications
+│   └── design_notes/                  # Mathematical models, SFC, and topology notes
+└── latex/                             # Article LaTeX Source Files
+    ├── main.tex                       # Manuscript source
+    └── scenario_2_latex_section.tex   # Formal description of Scenario 2
+```
+
+---
+
+## Research Methodology: Spec-Driven Development
+
+ECCOS was engineered using a **Spec-Driven Development** methodology. Every stochastic event, composite macro-event, and resource allocation behavior was mathematically specified prior to implementation:
+
+- Detailed event specifications are archived in [`supporting_documents/spec_driven_catalog/`](supporting_documents/spec_driven_catalog).
+- Structural design notes on SFC DAG formulations, topology models, and solver constraints are archived in [`supporting_documents/design_notes/`](supporting_documents/design_notes).
+
+---
+
+## How to Cite
+
+If you use **ECCOS** in your research, simulation studies, or baseline comparisons, please cite our paper:
+
+```bibtex
+@article{jaume2026eccos,
+  title   = {{Event-Driven Computing Continuum Orchestration Solver (ECCOS): A Discrete-Event Simulation Framework for Optimal Service Placement and ML-Ready Trace Generation}},
+  author  = {Jaume, Mireia and Lera, Isaac and Guerrero, Carlos},
+  journal = {Concurrency and Computation: Practice and Experience},
+  year    = {2026},
+  doi     = {10.1002/cpe.0000},
+  note    = {Software available at: \url{https://github.com/carlosguerrero/ECCOS}}
+}
+```
+
+*For software citation via GitHub or Zenodo, refer to [`CITATION.cff`](CITATION.cff).*
+
+---
+
+## Funding & Acknowledgments
+
+This research is supported by **Grant PID2024-158637OB-I00**, funded by **MICIU / AEI / 10.13039/501100011033** and co-funded by the European Union through the **European Regional Development Fund (ERDF)** — *"A way of making Europe"*.
+
+Developed by members of the **Computer Science Department** at the **University of the Balearic Islands (UIB)**, Palma, Spain.
+
+---
+
+## License
+
+This project is licensed under the **MIT License** — see the [`LICENSE`](LICENSE) file for details.
+

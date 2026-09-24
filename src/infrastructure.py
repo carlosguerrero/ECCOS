@@ -102,9 +102,10 @@ class InfrastructureSet:
         graph = self.get_main_graph()
         if not graph: return None
         
-        edge_nodes = [n for n, d in graph.nodes(data=True) if d.get('type') == 'edge' and d.get('enable', True)]
-        if not edge_nodes:
-            edge_nodes = [n for n, d in graph.nodes(data=True) if d.get('layer') == 'edge' and d.get('enable', True)]
+        edge_nodes = [
+            n for n, d in graph.nodes(data=True)
+            if (d.get('layer') == 'edge' or d.get('type') == 'edge') and d.get('enable', True)
+        ]
         if not edge_nodes:
             edge_nodes = [n for n, d in graph.nodes(data=True) if d.get('enable', True)]
         if not edge_nodes:
@@ -117,10 +118,19 @@ class InfrastructureSet:
         graph = self.get_main_graph()
         if not graph: return None
         
-        selected_nodes = [n for n, data in graph.nodes(data=True) if data.get('betweenness_centrality', 0) <= centrality and n != node]
+        edge_candidates = [
+            n for n, data in graph.nodes(data=True)
+            if (data.get('layer') == 'edge' or data.get('type') == 'edge')
+            and data.get('betweenness_centrality', 0) <= centrality
+            and n != node
+        ]
+        selected_nodes = edge_candidates if edge_candidates else [
+            n for n, data in graph.nodes(data=True)
+            if data.get('betweenness_centrality', 0) <= centrality and n != node
+        ]
 
         if selected_nodes:
-            rng = sim_set.rng_graph
+            rng = sim_set.rng_graph if sim_set else random
             selected_node = rng.choice(selected_nodes)
             return int(selected_node)
         return None

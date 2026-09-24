@@ -1,7 +1,7 @@
 solver_name: multi_ilp_all
 
 setup:
-  solver: multi-objective        # can be "greedy", "single-objective" o "multi-objective"
+  solver: single-objective        # can be "greedy", "single-objective" o "multi-objective"
   infeasible_penalty: 1000000.0  # Penalty cost returned when a placement is infeasible
   greedy_solver: {}              # Configuration parameters for GreedySolver (empty by default)
   ilp_solver:                    # Configuration parameters for ILPSolver (single-objective and multi-objective)

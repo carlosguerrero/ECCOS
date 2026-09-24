@@ -1,5 +1,6 @@
 from pulp import LpVariable, LpProblem, LpMinimize, lpSum, PULP_CBC_CMD, value, LpStatus
 import logging
+import time
 from typing import Any, Dict, Optional, Tuple
 from src.constants import INFEASIBLE_PENALTY, PENALTY_DELAY, DEFAULT_INFRA_ID
 from .base_solver import BaseSolver
@@ -9,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 class ILPMultiObjectiveSolver(BaseSolver):
     def solve(self, graph_dict: Any, application_set: Any, user_set: Any, 
-              config: Dict[str, Any], previous_placement: Optional[Dict[str, Any]] = None) -> Tuple[Optional[Dict[str, Any]], float]:
+              config: Dict[str, Any], previous_placement: Optional[Dict[str, Any]] = None) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
         """
         Solves the application placement problem using ILP to minimize weighted latency
         for Service Function Chaining (SFC) microservices.
@@ -24,7 +25,15 @@ class ILPMultiObjectiveSolver(BaseSolver):
 
         if graph is None:
             logger.error("Main graph not found in InfrastructureSet.")
-            return None, infeasible_penalty
+            return None, {
+                "objective": infeasible_penalty,
+                "total_latency": infeasible_penalty,
+                "latency_cost": infeasible_penalty,
+                "migration_cost": infeasible_penalty,
+                "server_usage_cost": infeasible_penalty,
+                "solver_status": "Infeasible",
+                "solve_time_seconds": 0.0
+            }
 
         graph_item = graph_dict.infrastructures.get(DEFAULT_INFRA_ID, {})
         all_pairs_shortest_paths = graph_item.get('shortest_paths', {})
@@ -41,7 +50,15 @@ class ILPMultiObjectiveSolver(BaseSolver):
             previous_placement = {}
 
         if not active_nodes:
-            return None, infeasible_penalty
+            return None, {
+                "objective": infeasible_penalty,
+                "total_latency": infeasible_penalty,
+                "latency_cost": infeasible_penalty,
+                "migration_cost": infeasible_penalty,
+                "server_usage_cost": infeasible_penalty,
+                "solver_status": "Infeasible",
+                "solve_time_seconds": 0.0
+            }
 
         # Prepare microservices lists
         # Each app has a list of microservices: [{'id': 'ms0', 'ram': 2.0}, ...]
@@ -65,57 +82,76 @@ class ILPMultiObjectiveSolver(BaseSolver):
                     for n2 in active_nodes:
                         y_amnn[(app_id, e_idx, n1, n2)] = LpVariable(f"Link_{app_id}_{e_idx}_{n1}_{n2}", lowBound=0, cat='Continuous')
 
+        # Total request weight across all users to compute weighted mean latency
+        total_user_weight = sum(float(u.get('requestRatio', 0.0)) for u in users.values())
+        norm_factor = 1.0 / total_user_weight if total_user_weight > 0 else 1.0
+
         prob = LpProblem("SFC_Placement", LpMinimize)
         objective_terms = []
 
         # 1. User Latency: Delay to the FIRST microservice of the requested app
         for user_id, user_data in users.items():
-            requested_app_id = user_data['requestedApp']
-            user_home_node = user_data['connectedTo']
+            requested_app_id = user_data.get('requestedApp')
+            user_home_node = user_data.get('connectedTo')
+            user_weight = float(user_data.get('requestRatio', 0.0))
 
-            if requested_app_id in applications and user_home_node in active_nodes:
+            if requested_app_id in applications and user_home_node in active_nodes and user_weight > 0:
                 app_data = applications[requested_app_id]
                 if not app_data.get('microservices'):
                     continue
                 first_ms_id = app_data['microservices'][0]['id']
 
+                norm_user_weight = user_weight * norm_factor
+                paths_from_user = all_pairs_shortest_paths.get(user_home_node, {})
+
                 for n in active_nodes:
-                    paths_from_user = all_pairs_shortest_paths.get(user_home_node, {})
-                    delay_value = paths_from_user.get(n, infeasible_penalty)
-                    objective_terms.append(delay_value * user_data['requestRatio'] * x_amn[requested_app_id, first_ms_id, n])
+                    if n == user_home_node:
+                        delay_value = 0.0
+                    elif n in paths_from_user:
+                        delay_value = paths_from_user[n]
+                    else:
+                        delay_value = infeasible_penalty * (total_user_weight / max(user_weight, 1.0))
+                    objective_terms.append(delay_value * norm_user_weight * x_amn[requested_app_id, first_ms_id, n])
 
         # 2. Internal SFC Latency: Delay between microservices
         for app_id, app_data in applications.items():
             edges = app_data.get('edges', [])
+            if not edges:
+                continue
 
             # Weight internal delay by the total request ratio for this app
-            app_request_ratio = sum(u['requestRatio'] for u in users.values() if u['requestedApp'] == app_id)
-            if app_request_ratio == 0:
-                app_request_ratio = 1.0 # Give it some base weight so it still optimizes
+            app_request_ratio = sum(float(u.get('requestRatio', 0.0)) for u in users.values() if u.get('requestedApp') == app_id)
+            if app_request_ratio > 0:
+                norm_app_weight = app_request_ratio * norm_factor
+            else:
+                norm_app_weight = 1e-5 / max(1, len(applications))
 
             for e_idx, edge in enumerate(edges):
                 for n1 in active_nodes:
                     paths_from_n1 = all_pairs_shortest_paths.get(n1, {})
                     for n2 in active_nodes:
-                        delay_value = paths_from_n1.get(n2, infeasible_penalty)
-                        objective_terms.append(delay_value * app_request_ratio * y_amnn[(app_id, e_idx, n1, n2)])
+                        if n1 == n2:
+                            delay_value = 0.0
+                        elif n2 in paths_from_n1:
+                            delay_value = paths_from_n1[n2]
+                        else:
+                            if app_request_ratio > 0:
+                                delay_value = infeasible_penalty * (total_user_weight / app_request_ratio)
+                            else:
+                                delay_value = infeasible_penalty
+                        objective_terms.append(delay_value * norm_app_weight * y_amnn[(app_id, e_idx, n1, n2)])
 
         # 3. Symmetry Breaker: Add a tiny penalty based on node index to break symmetry for apps without users
-        # This prevents the solver from getting stuck exploring identical zero-cost placements
         app_idx_map = {app_id: idx for idx, app_id in enumerate(applications.keys())}
         for app_id, ms_id, m_idx in ms_indices:
             a_idx = app_idx_map.get(app_id, 0)
             for node in active_nodes:
-                # We use a very small coefficient (e.g. 1e-5 * node) so it doesn't affect real latency decisions
-                # but strictly prefers lower-indexed nodes when latency is identical or zero.
-                # Convert node to an integer if it's not already, or just use its hash/id
                 try:
                     node_idx = int(node)
                 except ValueError:
                     node_idx = hash(node) % 1000
 
-                # Break symmetry across both nodes AND identical apps
-                sym_penalty = 1e-5 * (node_idx + a_idx * 100)
+                sym_penalty = 1e-6 * (node_idx + a_idx * 100)
                 objective_terms.append(sym_penalty * x_amn[app_id, ms_id, node])
 
         latency_cost = lpSum(objective_terms) * latency_weight
@@ -123,16 +159,12 @@ class ILPMultiObjectiveSolver(BaseSolver):
         # Migration Cost
         migration_terms = []
         for app_id, ms_id, m_idx in ms_indices:
-            # Check if ms_id was placed in previous_placement
-            # previous_placement structure: {'App_0': {'0_ms_0': 1, '0_ms_1': 2}, ...}
             prev_node = None
             for app_name, ms_dict in previous_placement.items():
                 if ms_id in ms_dict:
                     prev_node = ms_dict[ms_id]
                     break
             if prev_node is not None and prev_node in active_nodes:
-                # The cost is 1 if it is placed on ANY node other than prev_node
-                # Which is equivalent to (1 - x_amn[...prev_node])
                 migration_terms.append(1 - x_amn[app_id, ms_id, prev_node])
         migration_cost = lpSum(migration_terms) * migration_weight
 
@@ -140,14 +172,11 @@ class ILPMultiObjectiveSolver(BaseSolver):
         server_usage_terms = []
         z_n = LpVariable.dicts("NodeActive", active_nodes, cat="Binary")
         for node in active_nodes:
-            # Big-M constraint: sum(x) <= M * z_n
-            # M is the total number of microservices
-            M = len(ms_indices)
-            prob += lpSum(x_amn[app_id, ms_id, node] for app_id, ms_id, m_idx in ms_indices) <= M * z_n[node], f"Active_{node}"
+            prob += lpSum(x_amn[app_id, ms_id, node] for app_id, ms_id, m_idx in ms_indices) <= len(ms_indices) * z_n[node], f"ServerActive_{node}"
             server_usage_terms.append(z_n[node])
-        server_usage_cost = lpSum(server_usage_terms) * server_usage_weight
+        server_usage_cost = lpSum(server_usage_terms) * server_weight
 
-        prob += latency_cost + migration_cost + server_usage_cost, "Total_Objective"
+        prob += latency_cost + migration_cost + server_usage_cost, "Total_Cost"
 
         # Constraint 1: Every microservice must be placed exactly once
         for app_id, ms_id, m_idx in ms_indices:
@@ -157,7 +186,6 @@ class ILPMultiObjectiveSolver(BaseSolver):
         for node in active_nodes:
             node_attrs = graph.nodes[node]
             for attr_name, node_cap in node_attrs.items():
-                # We only want numeric capacities
                 if isinstance(node_cap, (int, float)):
                     attr_terms = []
                     for app_id, ms_id, m_idx in ms_indices:
@@ -175,24 +203,19 @@ class ILPMultiObjectiveSolver(BaseSolver):
                 ms_id1 = edge['source']
                 ms_id2 = edge['target']
                 for n1 in active_nodes:
-                    # The sum of links originating from ms_id1 on n1 must equal x_amn for ms_id1 on n1
                     prob += lpSum(y_amnn[(app_id, e_idx, n1, n2)] for n2 in active_nodes) == x_amn[app_id, ms_id1, n1], f"Lin3_{app_id}_{e_idx}_{n1}"
                 for n2 in active_nodes:
-                    # The sum of links terminating at ms_id2 on n2 must equal x_amn for ms_id2 on n2
                     prob += lpSum(y_amnn[(app_id, e_idx, n1, n2)] for n1 in active_nodes) == x_amn[app_id, ms_id2, n2], f"Lin4_{app_id}_{e_idx}_{n2}"
 
         # Limit solving time to prevent hanging on complex topologies
+        start_time = time.time()
         prob.solve(PULP_CBC_CMD(msg=0, timeLimit=time_limit, gapRel=gap_rel))
+        solve_time = round(time.time() - start_time, 4)
 
-        if LpStatus[prob.status] == "Optimal":
-            current_objective = value(prob.objective)
-            if current_objective >= infeasible_penalty:
-                return None, current_objective
+        status_str = LpStatus.get(prob.status, "Undefined")
 
+        if status_str == "Optimal":
             placement = {}
-
-            # Populate placement with microservice-level granularity
-            # placement[app_name] = {ms_id: node, ...}
             for app_id, app_data in applications.items():
                 app_name = app_data['name']
                 placement[app_name] = {}
@@ -202,7 +225,60 @@ class ILPMultiObjectiveSolver(BaseSolver):
                         if val is not None and val > 0.5:
                             placement[app_name][ms['id']] = node
                             break
-            return placement, current_objective
+
+            # Topological check: verify all active users have reachable paths
+            is_connected = self.check_topological_connectivity(
+                placement, applications, users, active_nodes, all_pairs_shortest_paths
+            )
+
+            if not is_connected:
+                return None, {
+                    "objective": infeasible_penalty,
+                    "total_latency": infeasible_penalty,
+                    "latency_cost": infeasible_penalty,
+                    "migration_cost": infeasible_penalty,
+                    "server_usage_cost": infeasible_penalty,
+                    "solver_status": "Disconnected",
+                    "solve_time_seconds": solve_time
+                }
+
+            # Exact weighted mean latency in milliseconds
+            mean_latency = self.compute_weighted_mean_latency(
+                placement, applications, users, active_nodes, all_pairs_shortest_paths
+            )
+            actual_latency_cost = round(mean_latency * latency_weight, 4)
+            actual_migration_cost = round(float(value(migration_cost)) if migration_cost is not None else 0.0, 4)
+            actual_server_usage_cost = round(float(value(server_usage_cost)) if server_usage_cost is not None else 0.0, 4)
+            actual_total_objective = round(actual_latency_cost + actual_migration_cost + actual_server_usage_cost, 4)
+
+            return placement, {
+                "objective": actual_total_objective,
+                "total_latency": mean_latency,
+                "latency_cost": actual_latency_cost,
+                "migration_cost": actual_migration_cost,
+                "server_usage_cost": actual_server_usage_cost,
+                "solver_status": "Optimal",
+                "solve_time_seconds": solve_time
+            }
+        elif status_str == "Not Solved":
+            return None, {
+                "objective": infeasible_penalty,
+                "total_latency": infeasible_penalty,
+                "latency_cost": infeasible_penalty,
+                "migration_cost": infeasible_penalty,
+                "server_usage_cost": infeasible_penalty,
+                "solver_status": "Not Solved",
+                "solve_time_seconds": solve_time
+            }
         else:
-            return None, infeasible_penalty
+            status_label = status_str if status_str in ["Infeasible", "Unbounded"] else "Infeasible"
+            return None, {
+                "objective": infeasible_penalty,
+                "total_latency": infeasible_penalty,
+                "latency_cost": infeasible_penalty,
+                "migration_cost": infeasible_penalty,
+                "server_usage_cost": infeasible_penalty,
+                "solver_status": status_label,
+                "solve_time_seconds": solve_time
+            }
 

@@ -1,0 +1,459 @@
+# =============================================================================
+# ECCOS Experiment 4: Normal Conditions — Steady-State Baseline
+# =============================================================================
+# Narrative: A typical weekday in a medium-density urban MEC deployment.
+# No special events. All stochastic phenomena are present at background
+# rates: occasional hardware failures, mild brownouts, moderate user
+# mobility, gradual user/app arrivals, and infrequent popularity shifts.
+#
+# This experiment serves as the CONTROL GROUP against which the three
+# stress scenarios (Exp 1-3) can be compared. It represents the "calm
+# before the storm" — normal operational conditions.
+#
+# All event types are enabled but with long inter-arrival times and
+# moderate impact magnitudes. No composed events are used — all events
+# are independent, reflecting the absence of correlated phenomena.
+#
+# Topology: scale_free (Barabási-Albert) — standard Internet-like backbone
+# Architecture: monolithic — simplest deployment model for baseline
+# =============================================================================
+
+scenario_name: normal_conditions
+
+seeds:
+  master: 400  # Fixed seed for full reproducibility
+
+# =============================================================================
+# INFRASTRUCTURE
+# =============================================================================
+infrastructure:
+  num_nodes: 50  # Consistent with all experiments
+                 # Ref: [Armeniakos2025Stochastic]
+
+  model:
+    name: scale_free  # Barabási-Albert model — standard Internet topology.
+                      # Ref: [Rak2020The; Barabási & Albert, Science 1999]
+    m: 2  # Average degree ~4, standard ISP-level connectivity.
+           # Ref: [Faloutsos et al., SIGCOMM 1999]
+    layer:
+      mode: centrality_based_layer
+      thresholds:
+        cloud_min: 0.10
+        fog_min: 0.02
+
+  # ---------------------------------------------------------------------------
+  # NODE ATTRIBUTES
+  # ---------------------------------------------------------------------------
+  node:
+    attributes:
+      ram:
+        mode: centrality_based
+        centrality_type: direct_proportional
+        distribution:
+          type: pareto  # Ref: [Reiss et al., EuroSys 2012]
+          a: 1.16
+          cloud:
+            type: uniform
+            low: 100000.0
+            high: 100000.0
+        min: 8.0   # Standard edge device minimum (8 GB)
+        max: 64.0  # High-end fog server
+      cpu:
+        mode: centrality_based
+        centrality_type: direct_proportional
+        distribution:
+          type: pareto
+          a: 1.16
+          cloud:
+            type: uniform
+            low: 100000.0
+            high: 100000.0
+        min: 2.0
+        max: 16.0
+
+    # -------------------------------------------------------------------------
+    # NODE EVENTS — LOW FREQUENCY (normal operations)
+    # -------------------------------------------------------------------------
+    actions:
+      disable_node:
+        frequency:
+          type: weibull  # Weibull failure model — standard reliability
+                         # engineering for hardware component failures.
+                         # Ref: [Schroeder & Gibson, DSN 2007]
+          a: 0.8         # Shape < 1 → decreasing hazard rate (infant mortality
+                         # phase of bathtub curve). Standard for server hardware.
+          scale: 300.0   # Mean inter-failure ~300s per node — baseline rate.
+                         # Ref: [Schroeder & Gibson, DSN 2007]
+                         # Ref: [paper Table 3 — recommended baseline]
+        impact:
+          distribution_to_enable_node:
+            type: lognormal  # Heavy-tailed repair time — most repairs are fast
+                             # but occasional extended outages occur.
+                             # Ref: [Schroeder & Gibson, DSN 2007]
+            mean: 2.5        # Median MTTR ~12s
+            sigma: 1.2       # Ref: [paper Table 3]
+
+      degrade_node:
+        frequency:
+          type: exponential  # Standard Poisson process for brownout arrivals
+                             # during normal operations.
+          scale: 200  # Rare degradation events — one every ~3.3 min per node.
+                      # Normal thermal throttling and OS contention rates.
+                      # Ref: [Bantock2020Mitigating]
+        impact:
+          target_attributes: ["ram", "cpu"]
+          p_loss_dist:
+            type: beta
+            a: 2
+            b: 5  # Mean ~0.29 (29% loss). Skewed toward mild degradation —
+                   # normal brownouts are minor.
+                   # Ref: [Xu et al., SOSP 2018]
+                   # Ref: [paper Table 3 — recommended Beta(2,5)]
+          distribution_to_restore_node:
+            type: exponential
+            scale: 50  # Mean ~50s restoration time.
+                       # Ref: [paper baseline configuration]
+
+  # ---------------------------------------------------------------------------
+  # EDGE ATTRIBUTES
+  # ---------------------------------------------------------------------------
+  edge:
+    attributes:
+      delay:
+        mode: homogenic
+        distribution:
+          type: uniform  # Uniform delay — standard for baseline scenarios
+                         # where link heterogeneity is not the focus.
+          low: 0.1       # 0.1ms minimum (very short intra-datacenter links)
+          high: 5.0      # 5ms maximum (metro-area links)
+                         # Ref: [paper baseline configuration]
+
+    # -------------------------------------------------------------------------
+    # EDGE EVENTS — LOW FREQUENCY (normal operations)
+    # -------------------------------------------------------------------------
+    actions:
+      disable_edge:
+        frequency:
+          type: exponential
+          scale: 350  # Rare link failures — one every ~5.8 min per edge.
+                      # Standard fiber/cable failure rate.
+                      # Ref: [Markopoulou et al., INFOCOM 2004]
+        impact:
+          distribution_to_enable_edge:
+            type: lognormal
+            mean: 2.0   # Median ~7s repair time
+            sigma: 0.8
+
+      congest_edge:
+        frequency:
+          type: exponential
+          scale: 120  # Infrequent congestion — one every ~2 min per edge.
+                      # Normal background traffic fluctuations.
+                      # Ref: [Zhang2022Optimal]
+        impact:
+          target_attributes_loss: ["bandwidth"]
+          target_attributes_multiplier: ["delay"]
+          p_loss_dist:
+            type: beta
+            a: 2
+            b: 5  # Mean ~0.29 — mild bandwidth loss (normal congestion)
+                   # Ref: [paper baseline]
+          multiplier_dist:
+            type: lognormal
+            mean: 0.5    # Median ~1.65x delay — mild inflation
+            sigma: 0.2   # Low variance — predictable normal conditions
+                         # Ref: [Hao et al., IMC 2010]
+          distribution_to_clear_edge:
+            type: exponential
+            scale: 30  # Mean ~30s until normal congestion clears
+
+# =============================================================================
+# APPLICATIONS — STABLE dynamics
+# =============================================================================
+app:
+  num_apps: 20  # Standard baseline — 20 apps.
+                # Ref: [paper baseline]
+
+  architecture: monolithic  # Simple monolithic deployment — baseline complexity.
+                            # Ref: [Oyeniran2024Microservices]
+
+  services:
+    network:
+      delay:
+        distribution:
+          type: uniform
+          low: 10.0   # Standard delay requirements
+          high: 50.0  # Ref: [3GPP TS 23.501]
+      bandwidth:
+        distribution:
+          type: uniform
+          low: 10.0    # Standard bandwidth
+          high: 100.0  # Ref: [Cisco Annual Internet Report 2023]
+    topology_model: directed_scale_free
+    scale_free_settings:
+      initial_nodes: 2
+      edges_per_node: 2
+    num_services_range: [2, 6]  # Ref: [Cerny2024From]
+    profiles:
+      iot:
+        prob: 0.6  # Majority IoT in normal conditions
+                   # Ref: [Cisco Annual Internet Report 2023]
+        attributes:
+          cpu:
+            distribution:
+              type: lognormal
+              mean: 0.1   # Ref: [Luo et al., NSDI 2021]
+              sigma: 0.5
+          ram:
+            distribution:
+              type: lognormal
+              mean: 0.1
+              sigma: 0.5
+      video:
+        prob: 0.4  # 40% video/streaming
+        attributes:
+          cpu:
+            distribution:
+              type: lognormal
+              mean: 2.0   # Ref: [Lu et al., NSDI 2019]
+              sigma: 1.0
+          ram:
+            distribution:
+              type: lognormal
+              mean: 3.0
+              sigma: 1.5
+
+  popularity:
+    distribution:
+      type: zipf
+      a: 1.2   # Standard Zipf exponent — moderate skew.
+               # Ref: [Breslau et al., INFOCOM 1999]
+    local_app_ratio: 0.3  # 30% local apps — standard urban deployment
+                          # with some location-specific services.
+                          # Ref: [Chen2022Efficient]
+    local_radius_influence: 0.15
+
+  num_new_users:
+    type: integers
+    low: 1
+    high: 4  # 1-4 initial users per app — moderate
+
+  # ---------------------------------------------------------------------------
+  # APPLICATION EVENTS — LOW FREQUENCY (stable operations)
+  # ---------------------------------------------------------------------------
+  actions:
+    remove_app:
+      frequency:
+        type: exponential
+        scale: 400  # Infrequent app removal — stable ecosystem
+
+    update_app_footprint:
+      frequency:
+        type: exponential
+        scale: 200  # Rare footprint changes — apps are stable
+      impact:
+        sigma_footprint:
+          type: uniform
+          low: 0.05   # Small variations — normal operational noise
+          high: 0.15  # Ref: [Cortez et al., ATC 2017]
+                      # Ref: [paper Table 3 — recommended 0.05-0.15]
+
+    update_app_network:
+      frequency:
+        type: exponential
+        scale: 250  # Rare network changes
+      impact:
+        sigma_net:
+          type: uniform
+          low: 0.05
+          high: 0.15
+
+    update_app_topology:
+      frequency:
+        type: exponential
+        scale: 300  # Very rare topology mutations — stable apps
+      impact:
+        l_min:
+          type: integers
+          low: 2
+          high: 3
+        l_max_global:
+          type: integers
+          low: 6
+          high: 7
+
+    surge_popularity:
+      frequency:
+        type: exponential
+        scale: 300  # Rare popularity surges — no viral events.
+                    # One surge every ~5 min per app.
+      impact:
+        transient_prob:
+          type: uniform
+          low: 0.7
+          high: 0.7  # 70% transient — most small surges are temporary
+                     # Ref: [Jung et al., WWW 2002]
+        duration_dist:
+          type: weibull
+          a: 1.5
+          scale: 10.0  # Ref: [paper Table 3]
+
+    drop_popularity:
+      frequency:
+        type: exponential
+        scale: 300
+      impact:
+        transient_prob:
+          type: uniform
+          low: 0.7
+          high: 0.7
+        duration_dist:
+          type: weibull
+          a: 1.5
+          scale: 10.0
+
+    geo_demand_shift:
+      frequency:
+        type: exponential
+        scale: 200  # Rare hotspot shifts — users have stable daily routines
+                    # (commute, work, home).
+                    # Ref: [Camp et al., 2002]
+      impact:
+        jump_prob:
+          type: uniform
+          low: 0.15  # 15% jumps — mostly gradual daily migration
+          high: 0.15 # (e.g., morning commute: residential → office)
+        drift_dist:
+          type: normal
+          mean: 0.0
+          sigma: 0.05  # Moderate drift — standard daily mobility patterns
+                       # Ref: [Camp et al., 2002]
+                       # Ref: [paper Table 3]
+
+# =============================================================================
+# USERS — MODERATE dynamics, STANDARD mobility
+# =============================================================================
+user:
+  num_users: 10  # 20% of 50 nodes = 10 initial users.
+                 # Standard density for a typical urban deployment.
+
+  spatial_distribution:
+    model: thomas_cluster  # Users cluster around transit hubs, offices,
+                           # residential areas.
+                           # Ref: [Saha2016Enriched; Yang2021Comparative]
+    hotspots: 5   # 5 activity centers — typical urban structure
+    spread: 0.05  # Standard clustering — balanced between tight and dispersed
+                  # Ref: [paper baseline]
+
+  spatial_region:
+    width: 2.0
+    height: 2.0
+    num_vertical_streets: 10
+    num_horizontal_streets: 10
+
+  mobility:
+    model: random  # Random direction — general-purpose urban mobility
+                   # without strict grid constraints.
+                   # Ref: [Kerdsri2017Visualization]
+    turn_probabilities:
+      straight: 0.33  # Equal turning probabilities — isotropic movement
+      left: 0.33
+      right: 0.34
+    speed:
+      type: uniform
+      low: 0.005   # Standard pedestrian speed range
+      high: 0.02   # Ref: [Weidmann, 1993]
+                   # Ref: [paper baseline]
+    coverage_radius:
+      type: normal
+      mean: 0.2    # Standard small-cell coverage radius
+                   # Ref: [Rappaport, 2024]
+      sigma: 0.02
+
+  request_ratio:
+    type: exponential
+    scale: 5  # Standard request rate — baseline user behavior
+              # Ref: [Paxson & Floyd, SIGCOMM 1995]
+              # Ref: [paper Table 3]
+
+  # ---------------------------------------------------------------------------
+  # USER EVENTS — MODERATE frequency (normal daily patterns)
+  # ---------------------------------------------------------------------------
+  actions:
+    remove_user:
+      frequency:
+        type: exponential
+        scale: 300  # Moderate user churn — standard session lengths
+                    # Ref: [paper baseline]
+
+    suspend_user:
+      frequency:
+        type: exponential
+        scale: 150  # Standard temporary disconnection rate — tunnel
+                    # traversal, elevator, building interiors.
+                    # Ref: [Haibeh2022A]
+                    # Ref: [paper baseline]
+      impact:
+        resume_user:
+          type: lognormal
+          mean: 1.0   # Median ~2.7s disconnection — short interruptions
+          sigma: 0.5  # Ref: [paper Table 3]
+
+    move_user:
+      frequency:
+        type: exponential
+        scale: 120  # Standard movement frequency — one displacement every
+                    # ~2 min per user. Normal pedestrian/commuter behavior.
+                    # Ref: [Bettstetter2004Stochastic]
+                    # Ref: [paper baseline]
+
+    change_request_ratio:
+      frequency:
+        type: exponential
+        scale: 150  # Infrequent activity changes — stable browsing habits
+                    # Ref: [Li2023Estimating]
+      impact:
+        increase_probability: 0.5  # Equal chance of increase/decrease —
+                                   # symmetric daily activity pattern
+                                   # (morning ramp-up, evening ramp-down)
+        multiplier:
+          type: uniform
+          low: 1.5   # Moderate multiplier — normal activity fluctuations
+          high: 3.0  # Ref: [paper baseline]
+        restore_ratio:
+          type: lognormal
+          mean: 1.0
+          sigma: 0.5  # Standard restoration time
+
+# =============================================================================
+# GLOBAL SPAWNER — ORGANIC growth
+# =============================================================================
+global_spawner:
+  actions:
+    # --- Standard user arrival rate ---
+    new_user:
+      type_object: user
+      action_type: new_user
+      frequency:
+        type: exponential
+        scale: 30  # Balanced to maintain stable user count (scale 300 / 10 users)
+                   # Represents normal user onboarding in a MEC deployment.
+                   # Ref: [Paxson & Floyd, SIGCOMM 1995]
+
+    # --- Very rare new app deployment ---
+    new_app:
+      type_object: app
+      action_type: new_app
+      frequency:
+        type: exponential
+        scale: 20  # Balanced to maintain stable app count (scale 400 / 20 apps)
+                     # Enterprise environments deploy apps infrequently.
+                     # Ref: [paper baseline]
+      impact:
+        num_new_users: 2
+
+    # =========================================================================
+    # NO COMPOSED EVENTS — Normal conditions have no correlated phenomena.
+    # All events are independent, reflecting the absence of cascading
+    # failures, crowd surges, or viral propagation waves.
+    # =========================================================================

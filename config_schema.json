@@ -1,242 +1,351 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Benchmark Mir Simulator Configuration Schema",
-  "description": "JSON Schema for the benchmarkMirSimulator configuration file (e.g., config_random.yaml).",
+  "title": "ECCOS Simulator Configuration Schema",
+  "description": "Unified JSON Schema for ECCOS scenario and solver configuration files.",
   "type": "object",
-  "properties": {
-    "setup": {
+  "$defs": {
+    "distribution": {
       "type": "object",
-      "description": "General setup configuration for the simulator.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "exponential",
+            "uniform",
+            "normal",
+            "lognormal",
+            "weibull",
+            "pareto",
+            "beta",
+            "zipf",
+            "integers",
+            "constant"
+          ]
+        },
+        "scale": {
+          "type": "number"
+        },
+        "mean": {
+          "type": "number"
+        },
+        "sigma": {
+          "type": "number"
+        },
+        "low": {
+          "type": "number"
+        },
+        "high": {
+          "type": "number"
+        },
+        "a": {
+          "type": "number"
+        },
+        "b": {
+          "type": "number"
+        },
+        "value": {
+          "type": "number"
+        },
+        "cloud": {
+          "$ref": "#/$defs/distribution"
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    "target_resolution": {
+      "type": "object",
       "properties": {
         "mode": {
           "type": "string",
           "enum": [
-            "random",
-            "manual"
-          ],
-          "description": "Generation mode for the simulator. Use 'random' for procedural generation, 'manual' to specify topology nodes and edges manually."
+            "single",
+            "group",
+            "all",
+            "zone",
+            "attribute"
+          ]
         },
-        "infeasible_penalty": {
-          "type": "number",
-          "description": "Penalty cost returned by the solver when a placement is infeasible."
-        },
-        "greedy_solver": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "description": "Configuration parameters for the Greedy solver module (can be empty {})."
-        },
-        "ilp_solver": {
+        "group_config": {
           "type": "object",
-          "description": "Configuration for the ILP solver module.",
           "properties": {
-            "timeLimit": {
-              "type": "integer",
-              "description": "Time limit in seconds for the solver execution."
+            "strategy": {
+              "type": "string"
             },
-            "gapRel": {
-              "type": "number",
-              "description": "Relative gap tolerance for the optimal solution (e.g., 0.05 for 5%)."
+            "num_elements": {
+              "type": "integer"
             },
-            "objective": {
-              "type": "string",
-              "enum": [
-                "single-objective",
-                "multi-objective",
-                "greedy"
-              ],
-              "description": "Objective function type or algorithm for the solver."
+            "percentage": {
+              "type": "number"
             },
-            "weights": {
-              "type": "object",
-              "description": "Weights assigned to different optimization metrics when using multi-objective.",
-              "properties": {
-                "latency": {
-                  "type": "number",
-                  "description": "Weight applied to latency optimization."
-                },
-                "migration": {
-                  "type": "number",
-                  "description": "Weight applied to minimizing migrations."
-                },
-                "server_usage": {
-                  "type": "number",
-                  "description": "Weight applied to server resource usage."
-                }
+            "zone_id": {
+              "type": "string"
+            },
+            "attribute_name": {
+              "type": "string"
+            },
+            "threshold": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    "action_frequency": {
+      "type": "object",
+      "properties": {
+        "frequency": {
+          "$ref": "#/$defs/distribution"
+        },
+        "impact": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "frequency"
+      ]
+    },
+    "sub_action": {
+      "type": "object",
+      "properties": {
+        "type_object": {
+          "type": "string"
+        },
+        "action_type": {
+          "type": "string"
+        },
+        "impact_params": {
+          "type": "object"
+        },
+        "target_attributes_loss": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "target_attributes_multiplier": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "p_loss_dist": {
+          "$ref": "#/$defs/distribution"
+        },
+        "multiplier_dist": {
+          "$ref": "#/$defs/distribution"
+        },
+        "distribution_to_clear_edge": {
+          "$ref": "#/$defs/distribution"
+        },
+        "distribution_to_enable_node": {
+          "$ref": "#/$defs/distribution"
+        },
+        "distribution_to_restore_node": {
+          "$ref": "#/$defs/distribution"
+        }
+      },
+      "required": [
+        "type_object",
+        "action_type"
+      ]
+    },
+    "global_action": {
+      "type": "object",
+      "properties": {
+        "type_object": {
+          "type": "string"
+        },
+        "action_type": {
+          "type": "string"
+        },
+        "frequency": {
+          "$ref": "#/$defs/distribution"
+        },
+        "impact": {
+          "type": "object",
+          "properties": {
+            "num_new_users": {
+              "type": [
+                "integer",
+                "number"
+              ]
+            },
+            "composed_of": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/sub_action"
               }
             }
           }
         }
       },
       "required": [
-        "mode",
-        "num_nodes",
-        "graph_model"
+        "frequency"
       ]
+    }
+  },
+  "properties": {
+    "scenario_name": {
+      "type": "string"
     },
-    "trigger_policy": {
+    "solver_name": {
+      "type": "string"
+    },
+    "seeds": {
       "type": "object",
-      "description": "Defines when the ILP solver should be triggered.",
       "properties": {
-        "type": {
-          "type": "string",
-          "enum": [
-            "solve_all",
-            "solve_none",
-            "solve_random_prob",
-            "solve_time_windows",
-            "solve_event_index_ranges",
-            "solve_custom_pattern",
-            "solve_every_t_seconds",
-            "solve_every_n_events",
-            "solve_on_event_types",
-            "combined"
-          ],
-          "description": "Policy mechanism determining execution frequency."
+        "master": {
+          "type": "integer"
         },
-        "probability": {
-          "type": "number",
-          "description": "Execution probability for solve_random_prob."
+        "graph": {
+          "type": "integer"
         },
-        "windows": {
-          "type": "array",
-          "description": "Time windows (e.g. [[0, 10], [50, 60]]) for solve_time_windows.",
-          "items": {
-            "type": "array",
-            "items": {
-              "type": "number"
+        "app": {
+          "type": "integer"
+        },
+        "user": {
+          "type": "integer"
+        },
+        "event": {
+          "type": "integer"
+        }
+      }
+    },
+    "infrastructure": {
+      "type": "object",
+      "properties": {
+        "num_nodes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "model": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "enum": [
+                "scale_free",
+                "erdos_renyi",
+                "spatial",
+                "fat_tree",
+                "tree",
+                "multi_tier",
+                "barabasi_albert"
+              ]
             },
-            "minItems": 2,
-            "maxItems": 2
-          }
-        },
-        "ranges": {
-          "type": "array",
-          "description": "Event index ranges for solve_event_index_ranges.",
-          "items": {
-            "type": "array",
-            "items": {
+            "m": {
               "type": "integer"
             },
-            "minItems": 2,
-            "maxItems": 2
+            "p": {
+              "type": "number"
+            },
+            "radius": {
+              "type": "number"
+            },
+            "branching_r": {
+              "type": "integer"
+            },
+            "branching_h": {
+              "type": "integer"
+            },
+            "cloud": {
+              "type": "object"
+            },
+            "fog": {
+              "type": "object"
+            },
+            "layer": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "centrality_based_layer",
+                    "depth_based_layer",
+                    "manual"
+                  ]
+                },
+                "thresholds": {
+                  "type": "object",
+                  "properties": {
+                    "cloud_min": {
+                      "type": "number"
+                    },
+                    "fog_min": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "name"
+          ]
+        },
+        "node": {
+          "type": "object",
+          "properties": {
+            "attributes": {
+              "type": "object"
+            },
+            "actions": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/action_frequency"
+              }
+            }
           }
         },
-        "pattern": {
-          "type": "array",
-          "description": "Boolean pattern array for solve_custom_pattern.",
-          "items": {
-            "type": "boolean"
-          }
-        },
-        "interval_seconds": {
-          "type": "number",
-          "description": "Time interval in seconds for solve_every_t_seconds or combined."
-        },
-        "batch_size": {
-          "type": "integer",
-          "description": "Number of events to accumulate before solving in solve_every_n_events."
-        },
-        "critical_events": {
-          "type": "array",
-          "description": "List of action names that forcefully trigger the solver in solve_on_event_types or combined.",
-          "items": {
-            "type": "string"
+        "edge": {
+          "type": "object",
+          "properties": {
+            "attributes": {
+              "type": "object"
+            },
+            "actions": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/action_frequency"
+              }
+            }
           }
         }
-      }
-    },
-    "topology": {
-      "type": "object",
-      "description": "Used only when setup.mode is 'manual'. Describes the exact nodes and edges in the graph.",
-      "properties": {
-        "nodes": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "type": [
-                  "string",
-                  "integer"
-                ],
-                "description": "Unique identifier of the node."
-              }
-            },
-            "additionalProperties": true
-          }
-        },
-        "edges": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "source": {
-                "type": [
-                  "string",
-                  "integer"
-                ],
-                "description": "Source node id."
-              },
-              "target": {
-                "type": [
-                  "string",
-                  "integer"
-                ],
-                "description": "Target node id."
-              }
-            },
-            "additionalProperties": true
-          }
-        }
-      }
+      },
+      "required": [
+        "num_nodes",
+        "model"
+      ]
     },
     "app": {
       "type": "object",
-      "description": "Configuration for application generation and demand.",
       "properties": {
         "num_apps": {
           "type": "integer",
-          "description": "Number of applications to generate."
+          "minimum": 1
         },
         "architecture": {
-          "type": "string",
-          "enum": [
-            "microservice",
-            "monolithic"
-          ],
-          "description": "Software architecture type. 'microservice' models Service Function Chains."
+          "type": [
+            "string",
+            "object"
+          ]
         },
         "services": {
           "type": "object",
-          "description": "Services configuration for applications.",
           "properties": {
+            "network": {
+              "type": "object"
+            },
             "topology_model": {
-              "type": "string",
-              "enum": [
-                "sfc",
-                "directed_scale_free"
-              ],
-              "description": "Topology generation model. 'sfc' for linear chain, 'directed_scale_free' for DAG."
+              "type": "string"
             },
             "scale_free_settings": {
-              "type": "object",
-              "description": "Parameters for the directed_scale_free generation model.",
-              "properties": {
-                "initial_nodes": {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                "edges_per_node": {
-                  "type": "integer",
-                  "minimum": 1
-                }
-              }
+              "type": "object"
             },
             "num_services_range": {
               "type": "array",
-              "description": "Minimum and maximum number of microservices per application graph.",
               "items": {
                 "type": "integer"
               },
@@ -244,442 +353,259 @@
               "maxItems": 2
             },
             "profiles": {
-              "type": "object",
-              "description": "Profiles defining CPU/RAM distributions for microservices.",
-              "additionalProperties": {
-                "type": "object",
-                "properties": {
-                  "prob": {
-                    "type": "number",
-                    "description": "Probability of this profile being selected."
-                  },
-                  "attributes": {
-                    "type": "object",
-                    "description": "Dynamic attributes for microservices (e.g. cpu, ram) mapped to their distributions.",
-                    "additionalProperties": {
-                      "$ref": "#/definitions/attributeDef"
-                    }
-                  }
-                }
-              }
-            },
-            "network": {
-              "type": "object",
-              "description": "Dynamic network requirements for the app.",
-              "additionalProperties": {
-                "$ref": "#/definitions/attributeDef"
-              }
+              "type": "object"
             }
           }
         },
         "popularity": {
           "type": "object",
-          "description": "App popularity distribution.",
           "properties": {
             "distribution": {
-              "description": "Statistical distribution from which the application popularity is drawn.",
-              "$ref": "#/definitions/distributionDef"
-            },
-            "model": {
-              "type": "string",
-              "description": "Popularity distribution model, typically 'zipf'. Deprecated: use distribution instead."
-            },
-            "alpha": {
-              "type": "number",
-              "description": "Alpha parameter for Zipf's law. Deprecated: use distribution instead."
+              "$ref": "#/$defs/distribution"
             },
             "local_app_ratio": {
-              "type": "number",
-              "description": "Ratio of apps that are bound to a specific geographical region."
+              "type": "number"
             },
             "local_radius_influence": {
-              "type": "number",
-              "description": "Radius of influence around a local app where popularity is boosted."
+              "type": "number"
             }
           }
         },
         "num_new_users": {
-          "description": "Distribution to sample the initial amount of users per application generated.",
-          "$ref": "#/definitions/distributionDef"
+          "$ref": "#/$defs/distribution"
         },
         "actions": {
           "type": "object",
-          "description": "Periodic actions targeting applications (e.g., removing or updating apps).",
           "additionalProperties": {
-            "$ref": "#/definitions/actionItem"
+            "$ref": "#/$defs/action_frequency"
           }
         }
-      }
+      },
+      "required": [
+        "num_apps"
+      ]
     },
     "user": {
       "type": "object",
-      "description": "Configuration for the generation, mobility, and behavior of simulation users.",
       "properties": {
         "num_users": {
           "type": "integer",
-          "description": "Total number of initial users to spawn."
+          "minimum": 0
         },
         "spatial_distribution": {
           "type": "object",
-          "description": "Model assigning spatial coordinates to spawned users.",
           "properties": {
             "model": {
-              "type": "string",
-              "description": "E.g., 'thomas_cluster' spawns users near hotspots, 'random_uniform' spawns them randomly across the plane."
+              "type": "string"
             },
             "hotspots": {
-              "type": "integer",
-              "description": "Number of geographical hotspots created."
+              "type": "integer"
             },
             "spread": {
-              "type": "number",
-              "description": "Standard deviation around the hotspot for user clustering."
+              "type": "number"
             }
           }
         },
         "spatial_region": {
           "type": "object",
-          "description": "Boundary constraints for user movement and node layout scaling.",
           "properties": {
             "width": {
-              "type": "number",
-              "description": "Maximum width (X-axis limit) for the spatial region."
+              "type": "number"
             },
             "height": {
-              "type": "number",
-              "description": "Maximum height (Y-axis limit) for the spatial region."
+              "type": "number"
             },
             "num_vertical_streets": {
-              "type": "integer",
-              "description": "Number of vertical streets uniformly distributed."
+              "type": "integer"
             },
             "num_horizontal_streets": {
-              "type": "integer",
-              "description": "Number of horizontal streets uniformly distributed."
+              "type": "integer"
             }
           }
         },
         "mobility": {
           "type": "object",
-          "description": "Mobility model governing how users move through the environment.",
           "properties": {
             "model": {
-              "type": "string",
-              "description": "E.g., 'manhattan' constrains movement to an X/Y grid, 'random_direction' allows moving in any angle."
+              "type": "string"
             },
             "turn_probabilities": {
-              "type": "object",
-              "description": "Probabilities of turning at an intersection for manhattan model.",
-              "properties": {
-                "straight": { "type": "number" },
-                "left": { "type": "number" },
-                "right": { "type": "number" }
-              }
+              "type": "object"
             },
             "speed": {
-              "anyOf": [
+              "oneOf": [
                 {
                   "type": "number"
                 },
                 {
-                  "$ref": "#/definitions/distributionItem"
+                  "$ref": "#/$defs/distribution"
                 }
-              ],
-              "description": "Base traversal speed per movement event or a distribution"
+              ]
             },
             "coverage_radius": {
-              "anyOf": [
+              "oneOf": [
                 {
                   "type": "number"
                 },
                 {
-                  "$ref": "#/definitions/distributionItem"
+                  "$ref": "#/$defs/distribution"
                 }
-              ],
-              "description": "Maximum Euclidean distance the user can drift before losing signal or a distribution"
+              ]
             }
           }
         },
         "request_ratio": {
-          "description": "Distribution defining the frequency/amount of service requests issued by the user.",
-          "$ref": "#/definitions/distributionDef"
+          "$ref": "#/$defs/distribution"
+        },
+        "request_popularity": {
+          "$ref": "#/$defs/distribution"
         },
         "actions": {
           "type": "object",
-          "description": "Periodic actions applied to users (e.g., move_user, remove_user).",
           "additionalProperties": {
-            "$ref": "#/definitions/actionItem"
+            "$ref": "#/$defs/action_frequency"
           }
         }
-      }
+      },
+      "required": [
+        "num_users"
+      ]
     },
     "global_spawner": {
       "type": "object",
-      "description": "Actions generating entirely new entities dynamically during the simulation.",
-      "properties": {
-        "new_user": {
-          "description": "Action responsible for spawning new users over time.",
-          "$ref": "#/definitions/actionItem"
-        },
-        "new_app": {
-          "description": "Action responsible for spawning new applications over time.",
-          "$ref": "#/definitions/actionItem"
-        }
-      }
-    },
-    "infrastructure": {
-      "type": "object",
-      "description": "Infrastructure-specific configurations.",
       "properties": {
         "actions": {
           "type": "object",
-          "description": "Periodic actions applied to the graph elements (e.g. node/edge failures).",
           "additionalProperties": {
-            "$ref": "#/definitions/actionItem"
+            "$ref": "#/$defs/global_action"
           }
+        }
+      }
+    },
+    "setup": {
+      "type": "object",
+      "properties": {
+        "solver": {
+          "type": "string",
+          "enum": [
+            "single-objective",
+            "multi-objective",
+            "greedy"
+          ]
         },
-        "node": {
+        "infeasible_penalty": {
+          "type": "number"
+        },
+        "greedy_solver": {
+          "type": "object"
+        },
+        "ilp_solver": {
           "type": "object",
           "properties": {
-            "attributes": {
-              "type": "object",
-              "description": "Node specific attributes like ram, cpu, storage, and layer classification.",
-              "additionalProperties": {
-                "$ref": "#/definitions/attributeDef"
-              }
-            }
-          }
-        },
-        "edge": {
-          "type": "object",
-          "properties": {
-            "attributes": {
-              "type": "object",
-              "description": "Edge specific attributes like delay and bandwidth.",
-              "additionalProperties": {
-                "$ref": "#/definitions/attributeDef"
-              }
-            }
-          }
-        },
-        "num_nodes": {
-          "type": "integer",
-          "description": "Total number of nodes to generate in the infrastructure graph.",
-          "minimum": 1
-        },
-        "model": {
-          "type": "object",
-          "description": "Configuration for the chosen infrastructure model.",
-          "properties": {
-            "name": {
-              "type": "string",
-              "enum": [
-                "erdos_renyi",
-                "scale_free",
-                "spatial",
-                "fat_tree",
-                "tree",
-                "multi_tier"
-              ],
-              "description": "Algorithm used to generate the infrastructure graph topology."
+            "timeLimit": {
+              "type": "integer"
             },
-            "layer": {
-              "$ref": "#/definitions/attributeDef"
+            "gapRel": {
+              "type": "number"
+            },
+            "weights": {
+              "type": "object",
+              "properties": {
+                "latency": {
+                  "type": "number"
+                },
+                "migration": {
+                  "type": "number"
+                },
+                "server_usage": {
+                  "type": "number"
+                }
+              }
             }
           }
         }
       }
-    }
-  },
-  "definitions": {
-    "distributionDef": {
+    },
+    "trigger_policy": {
       "type": "object",
-      "description": "Statistical distribution specification or layered mapping.",
       "properties": {
         "type": {
           "type": "string",
           "enum": [
-            "uniform",
-            "pareto",
-            "exponential",
-            "integers",
-            "normal",
-            "lognormal",
-            "weibull",
-            "beta",
-            "zipf"
-          ],
-          "description": "The type of statistical distribution to draw values from."
+            "solve_all",
+            "solve_none",
+            "solve_every_t_seconds",
+            "solve_every_n_events",
+            "solve_on_event_types",
+            "solve_random_prob",
+            "solve_time_windows",
+            "solve_event_index_ranges",
+            "solve_custom_pattern",
+            "combined"
+          ]
         },
-        "low": {
-          "type": "number",
-          "description": "Lower bound for uniform/integers."
+        "interval_seconds": {
+          "type": "number"
         },
-        "high": {
-          "type": "number",
-          "description": "Upper bound for uniform/integers."
+        "batch_size": {
+          "type": "integer"
         },
-        "a": {
-          "type": "number",
-          "description": "Shape parameter for Pareto, Beta, Weibull, or Zipf."
+        "critical_events": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
-        "b": {
-          "type": "number",
-          "description": "Second shape parameter for Beta."
+        "probability": {
+          "type": "number"
         },
-        "scale": {
-          "type": "number",
-          "description": "Scale parameter for Exponential or Weibull."
+        "windows": {
+          "type": "array",
+          "items": {
+            "type": "array"
+          }
         },
-        "mean": {
-          "type": "number",
-          "description": "Mean value for Normal or Lognormal."
+        "ranges": {
+          "type": "array",
+          "items": {
+            "type": "array"
+          }
         },
-        "sigma": {
-          "type": "number",
-          "description": "Standard deviation parameter."
-        },
-        "min": {
-          "type": "number",
-          "description": "Minimum clamped limit applied to the generated value."
-        },
-        "max": {
-          "type": "number",
-          "description": "Maximum clamped limit applied to the generated value."
-        },
-        "cloud": {
-          "$ref": "#/definitions/distributionDef"
-        },
-        "fog": {
-          "$ref": "#/definitions/distributionDef"
-        },
-        "edge": {
-          "$ref": "#/definitions/distributionDef"
-        }
-      }
-    },
-    "actionItem": {
-      "type": "object",
-      "description": "Configuration object describing a stochastic event, sub-action, or macro-event.",
-      "properties": {
-        "type_object": {
-          "type": "string",
-          "enum": ["global", "graph_node", "graph_edge", "app", "user"],
-          "description": "The entity type this action originates from or affects."
-        },
-        "action_type": {
-          "type": "string",
-          "description": "The name of the action to execute (e.g., 'disable_node', 'surge_popularity')."
-        },
-        "frequency": {
-          "description": "Statistical distribution specifying the time interval until the next event trigger.",
-          "$ref": "#/definitions/distributionDef"
-        },
-        "impact": {
-          "type": "object",
-          "description": "Contextual parameters for macro-events, including the composed_of array.",
-          "properties": {
-            "composed_of": {
-              "type": "array",
-              "description": "List of sub-actions to execute when this encapsulated macro-event triggers.",
-              "items": {
-                "$ref": "#/definitions/actionItem"
-              }
-            }
-          },
-          "additionalProperties": true
-        },
-        "impact_params": {
-          "type": "object",
-          "description": "Parameters for individual sub-actions, such as target_resolution.",
-          "properties": {
-            "target_resolution": {
-              "type": "object",
-              "properties": {
-                "mode": {
-                  "type": "string",
-                  "enum": ["self", "random", "id", "intelligent", "group"]
-                },
-                "id": {
-                  "type": "string"
-                },
-                "group_config": {
-                  "type": "object",
-                  "properties": {
-                    "strategy": {
-                      "type": "string",
-                      "enum": ["list", "random", "self_random", "self_proximity", "random_proximity"]
-                    },
-                    "num_elements": {
-                      "type": ["integer", "number"]
-                    },
-                    "list": {
-                      "type": "array",
-                      "items": {"type": "string"}
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "additionalProperties": true
-        }
-      }
-    },
-    "attributeDef": {
-      "type": "object",
-      "description": "Definition structure describing how an element's attribute is assigned.",
-      "properties": {
-        "mode": {
-          "type": "string",
-          "enum": [
-            "homogenic",
-            "centrality_based",
-            "centrality_based_layer",
-            "depth_based_layer",
-            "layered"
-          ],
-          "description": "Mechanism determining how values are generated across nodes/edges. homogenic implies the same base distribution. centrality_based alters values by betweenness."
-        },
-        "distribution": {
-          "description": "Base distribution or layered mapping from which attribute values are drawn.",
-          "$ref": "#/definitions/distributionDef"
-        },
-        "min": {
-          "type": "number",
-          "description": "Minimum clamped limit applied to the generated value."
-        },
-        "max": {
-          "type": "number",
-          "description": "Maximum clamped limit applied to the generated value."
-        },
-        "centrality_type": {
-          "type": "string",
-          "enum": [
-            "direct_proportional",
-            "inverted_proportional"
-          ],
-          "description": "Whether high centrality results in a higher multiplier (direct) or lower multiplier (inverted)."
-        },
-        "thresholds": {
-          "type": "object",
-          "description": "Thresholds used by modes like centrality_based_layer.",
-          "properties": {
-            "cloud_min": {
-              "type": "number"
-            },
-            "fog_min": {
-              "type": "number"
-            },
-            "cloud_max": {
-              "type": "integer"
-            },
-            "fog_max": {
-              "type": "integer"
-            }
+        "pattern": {
+          "type": "array",
+          "items": {
+            "type": "boolean"
           }
         }
-      }
+      },
+      "required": [
+        "type"
+      ]
     }
-  }
+  },
+  "anyOf": [
+    {
+      "required": [
+        "scenario_name",
+        "infrastructure",
+        "app",
+        "user"
+      ]
+    },
+    {
+      "required": [
+        "solver_name",
+        "setup",
+        "trigger_policy"
+      ]
+    },
+    {
+      "required": [
+        "setup",
+        "infrastructure",
+        "app",
+        "user"
+      ]
+    }
+  ]
 }

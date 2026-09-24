@@ -1,0 +1,103 @@
+{
+  "_comment": "Plantilla Maestra Exhaustiva de Distribuciones Estad\u00edsticas Soportadas",
+  "_info": "Este archivo sirve como documentaci\u00f3n para saber c\u00f3mo definir cualquier distribuci\u00f3n estad\u00edstica de numpy.random en el simulador.",
+  "ejemplos_distribuciones": {
+    "1. Constante (Literal Num\u00e9rico)": 100,
+    "2. Normal (Gaussiana)": {
+      "type": "normal",
+      "loc": 10.0,
+      "scale": 2.5
+    },
+    "3. Uniforme": {
+      "type": "uniform",
+      "low": 0.0,
+      "high": 1.0
+    },
+    "4. Exponencial": {
+      "type": "exponential",
+      "scale": 5.0
+    },
+    "5. Poisson": {
+      "type": "poisson",
+      "lam": 4.0
+    },
+    "6. Pareto": {
+      "type": "pareto",
+      "a": 1.5,
+      "size": "{num_nodes}"
+    },
+    "7. Enteros (Integers)": {
+      "type": "integers",
+      "low": 1,
+      "high": 10
+    },
+    "8. Choice (Selecci\u00f3n de un conjunto predefinido de variables)": {
+      "type": "choice",
+      "a": "{active_edges}"
+    },
+    "9. Binomial": {
+      "type": "binomial",
+      "n": 10,
+      "p": 0.5
+    },
+    "10. Gamma": {
+      "type": "gamma",
+      "shape": 2.0,
+      "scale": 1.0
+    },
+    "11. Beta": {
+      "type": "beta",
+      "a": 0.5,
+      "b": 0.5
+    },
+    "12. Lognormal": {
+      "type": "lognormal",
+      "mean": 0.0,
+      "sigma": 1.0
+    },
+    "13. Weibull": {
+      "type": "weibull",
+      "a": 1.5
+    },
+    "14. Geometrica": {
+      "type": "geometric",
+      "p": 0.35
+    },
+    "15. Dirichlet": {
+      "type": "dirichlet",
+      "alpha": [
+        10.0,
+        5.0,
+        2.0
+      ]
+    },
+    "16. Multinomial": {
+      "type": "multinomial",
+      "n": 20,
+      "pvals": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "17. Triangular": {
+      "type": "triangular",
+      "left": 0.0,
+      "mode": 0.5,
+      "right": 1.0
+    },
+    "18. Rayleigh": {
+      "type": "rayleigh",
+      "scale": 1.0
+    },
+    "19. Standard Cauchy": {
+      "type": "standard_cauchy"
+    },
+    "20. Random Flotante [0.0, 1.0)": {
+      "type": "random"
+    }
+  }
+}

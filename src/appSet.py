@@ -464,18 +464,60 @@ class ApplicationSet:
         """Official string representation for developers (useful for debugging)."""
         return f"ApplicationSet(applications={self.applications})"
     
-    def new_app(self, app_id: str, config: Any, app_set: Any, infrastructure: Any, user_set: Any, event_set: Any, sim_set: Any, num_new_users: str, **kwargs: Any) -> str:
+    def new_app(
+        self,
+        app_id: Optional[str] = None,
+        config: Optional[Any] = None,
+        app_set: Optional[Any] = None,
+        infrastructure: Optional[Any] = None,
+        user_set: Optional[Any] = None,
+        event_set: Optional[Any] = None,
+        sim_set: Optional[Any] = None,
+        num_new_users: Optional[Any] = None,
+        **kwargs: Any
+    ) -> str:
         """Creates a new app with random attributes based on the configuration."""
-        num_new_users_val = sim_set.parse_distribution(num_new_users, context='app')
+        if app_set is None:
+            app_set = kwargs.get('app_set', self)
+        if config is None:
+            config = kwargs.get('config', {})
+        if infrastructure is None:
+            infrastructure = kwargs.get('infrastructure')
+        if user_set is None:
+            user_set = kwargs.get('user_set')
+        if event_set is None:
+            event_set = kwargs.get('event_set')
+        if sim_set is None:
+            sim_set = kwargs.get('sim_set')
+
+        if num_new_users is None:
+            num_new_users = kwargs.get('num_new_users')
+        if num_new_users is None:
+            app_conf = config.get('app', config.get('attributes', {}).get('app', {})) if config else {}
+            num_new_users = app_conf.get('num_new_users', 1)
+
+        num_new_users_val = sim_set.parse_distribution(num_new_users, context='app') if sim_set else 1
+        if num_new_users_val is None:
+            num_new_users_val = 1
+        num_new_users_val = int(num_new_users_val)
 
         create_new_app(config, app_set, event_set, sim_set)
 
         created_app_id = list(app_set.applications)[-1]
 
-        for i in range(num_new_users_val):
-            create_new_user(config, app_set, infrastructure, user_set, event_set, sim_set, created_app_id)
+        # Ensure the new app has non-zero popularity if not set
+        if app_set.applications[created_app_id].get('popularity', 0.0) == 0.0:
+            existing_pops = [a['popularity'] for a in app_set.applications.values() if a.get('popularity', 0.0) > 0.0]
+            if existing_pops:
+                app_set.applications[created_app_id]['popularity'] = sum(existing_pops) / len(existing_pops)
+            else:
+                app_set.applications[created_app_id]['popularity'] = 1.0
 
-        message = f"Application {self.applications[created_app_id]['name']} has been created, along with {num_new_users_val} new users requesting this app."
+        if user_set is not None and infrastructure is not None:
+            for _ in range(num_new_users_val):
+                create_new_user(config, app_set, infrastructure, user_set, event_set, sim_set, created_app_id)
+
+        message = f"Application {app_set.applications[created_app_id]['name']} has been created, along with {num_new_users_val} new users requesting this app."
         return message
 
 def create_new_app(config: Dict[str, Any], application_set: ApplicationSet, event_set: EventSet, sim_set: Any) -> float:

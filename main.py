@@ -1,3 +1,4 @@
+import sys
 import yaml
 import os
 import argparse
@@ -53,7 +54,16 @@ def main():
     parser.add_argument("--solver", "-c", type=str, default=DEFAULT_SOLVER_CONFIG_FILE, help="Path to solver config YAML")
     parser.add_argument("--seed", type=int, default=DEFAULT_MASTER_SEED, help="Master random seed")
     parser.add_argument("--iterations", "-i", type=int, default=DEFAULT_TOTAL_ITERATIONS, help="Total simulation iterations")
+    parser.add_argument("--validate", nargs="+", metavar="CONFIG_FILE", help="Validate one or more YAML configuration files against the schema and exit")
     args = parser.parse_args()
+
+    if args.validate:
+        from src.schema_validator import validate_and_print
+        all_passed = True
+        for config_file in args.validate:
+            if not validate_and_print(config_file):
+                all_passed = False
+        sys.exit(0 if all_passed else 1)
 
     run_simulation(
         scenario_path=args.scenario,
@@ -61,6 +71,7 @@ def main():
         master_seed=args.seed,
         total_iterations=args.iterations,
     )
+
 
 
 if __name__ == "__main__":

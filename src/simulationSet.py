@@ -59,13 +59,13 @@ class SimulationSet:
     def _get_rng_for_context(self, context: str) -> np.random.Generator:
         """Returns the appropriate generator based on the context string."""
         context = context.lower()
-        if context in ['graph', 'graph_node', 'graph_edge', 'graph_creation']:
+        if context in ['graph', 'graph_node', 'graph_edge', 'graph_creation', 'infrastructure', 'node', 'edge']:
             return self.rng_graph
-        elif context == 'app':
+        elif context in ['app', 'apps']:
             return self.rng_app
-        elif context == 'user':
+        elif context in ['user', 'users']:
             return self.rng_user
-        elif context in ['event', 'global_spawner']:
+        elif context in ['event', 'events', 'global_spawner', 'global']:
             return self.rng_event
         else:
             raise ValueError(f"Unknown context: {context}")

@@ -1,0 +1,558 @@
+# =============================================================================
+# ECCOS Experiment 3: Application Demand Surge — Viral App / Flash Crowd
+# =============================================================================
+# Narrative: A popular application goes viral (e.g., breaking news, trending
+# social media challenge, emergency alert system) causing an exponential
+# increase in demand. The surge propagates across the network: first as a
+# popularity explosion, then as resource exhaustion cascading through the
+# edge/fog layers, and finally causing node degradation and edge congestion
+# from sustained overload.
+#
+# Unlike the crowd scenario (Exp 2), the surge is APPLICATION-DRIVEN, not
+# geographically concentrated. Users everywhere increase their activity,
+# app footprints grow, and new users arrive rapidly.
+#
+# Demand stress is EXTREME; infrastructure stress is SECONDARY (caused by
+# overload, not hardware failure).
+#
+# Topology: multi_tier — realistic Cloud-Fog-Edge for end-to-end bottleneck
+#           analysis under surging traffic.
+# Architecture: microservice — DAG/SFC apps that auto-scale and mutate
+#               under viral demand pressure.
+# =============================================================================
+
+scenario_name: demand_surge
+
+seeds:
+  master: 300  # Fixed seed for full reproducibility
+
+# =============================================================================
+# INFRASTRUCTURE
+# =============================================================================
+infrastructure:
+  num_nodes: 50  # Ref: [Armeniakos2025Stochastic]
+
+  model:
+    name: multi_tier  # Ref: [Armeniakos2025Stochastic; Fernando2025On]
+    cloud:
+      percentage: 2
+    fog:
+      percentage: 10
+      m: 2
+    edge:
+      radius: 0.12  # Standard edge connectivity radius
+    layer:
+      mode: centrality_based_layer
+      thresholds:
+        cloud_min: 0.10
+        fog_min: 0.02
+
+  # ---------------------------------------------------------------------------
+  # NODE ATTRIBUTES
+  # ---------------------------------------------------------------------------
+  node:
+    attributes:
+      ram:
+        mode: centrality_based
+        centrality_type: direct_proportional
+        distribution:
+          type: pareto  # Ref: [Reiss et al., EuroSys 2012]
+          a: 1.16
+          cloud:
+            type: uniform
+            low: 100000.0
+            high: 100000.0
+        min: 4.0
+        max: 32.0
+      cpu:
+        mode: centrality_based
+        centrality_type: direct_proportional
+        distribution:
+          type: pareto
+          a: 1.16
+          cloud:
+            type: uniform
+            low: 100000.0
+            high: 100000.0
+        min: 2.0
+        max: 16.0
+
+    # -------------------------------------------------------------------------
+    # NODE EVENTS — MODERATE degradation from sustained overload
+    # -------------------------------------------------------------------------
+    actions:
+      disable_node:
+        frequency:
+          type: exponential
+          scale: 400  # Rare total failures — overload causes degradation,
+                      # not crashes (modern servers throttle, not crash).
+                      # Ref: [Gill et al., DSN 2011]
+        impact:
+          distribution_to_enable_node:
+            type: lognormal
+            mean: 2.0
+            sigma: 0.8
+
+      degrade_node:
+        frequency:
+          type: exponential
+          scale: 80  # FREQUENT degradation — sustained high CPU/RAM usage
+                     # causes thermal throttling, swap pressure, and GC pauses.
+                     # Edge servers under viral load degrade predictably.
+                     # Ref: [Bantock2020Mitigating]
+                     # Ref: [Dean & Barroso, CACM 2013 — "The tail at scale"]
+        impact:
+          target_attributes: ["ram", "cpu"]
+          p_loss_dist:
+            type: beta
+            a: 2
+            b: 4  # Mean ~0.33 (33% capacity loss). Moderate degradation
+                   # from sustained load — thermal throttling, not failure.
+                   # Ref: [Dean & Barroso, CACM 2013]
+          distribution_to_restore_node:
+            type: exponential
+            scale: 60  # Slower recovery — sustained load keeps servers hot.
+                       # Recovery only when demand subsides.
+
+  # ---------------------------------------------------------------------------
+  # EDGE ATTRIBUTES
+  # ---------------------------------------------------------------------------
+  edge:
+    attributes:
+      delay:
+        mode: homogenic
+        distribution:
+          type: lognormal  # Ref: [Hao et al., IMC 2010]
+          mean: 1.5
+          sigma: 0.8
+
+    # -------------------------------------------------------------------------
+    # EDGE EVENTS — MODERATE congestion from increased traffic volume
+    # -------------------------------------------------------------------------
+    actions:
+      disable_edge:
+        frequency:
+          type: exponential
+          scale: 450  # Very rare link failures
+        impact:
+          distribution_to_enable_edge:
+            type: lognormal
+            mean: 2.0
+            sigma: 0.8
+
+      congest_edge:
+        frequency:
+          type: exponential
+          scale: 50  # FREQUENT congestion — traffic volume increases across
+                     # all links as the viral app generates massive data flows.
+                     # Unlike Exp 2, congestion is network-wide, not localized.
+                     # Ref: [Zhang2022Optimal]
+        impact:
+          target_attributes_loss: ["bandwidth"]
+          target_attributes_multiplier: ["delay"]
+          p_loss_dist:
+            type: beta
+            a: 2
+            b: 4  # Mean ~0.33 — moderate bandwidth loss from sustained
+                   # high traffic (not as severe as localized crowd)
+          multiplier_dist:
+            type: lognormal
+            mean: 0.5   # Median ~1.65x delay increase — moderate congestion
+            sigma: 0.3  # Ref: [Hao et al., IMC 2010]
+          distribution_to_clear_edge:
+            type: exponential
+            scale: 40  # Slower congestion clearing — traffic remains high
+
+# =============================================================================
+# APPLICATIONS — EXTREME popularity dynamics, RAPID footprint changes
+# =============================================================================
+app:
+  num_apps: 25  # 25 initial apps — slightly more to model the viral ecosystem
+                # (the viral app + competing alternatives + background apps).
+
+  architecture: monolithic  # Microservice apps auto-scale under load:
+                              # adding caching layers, load balancers, etc.
+                              # Ref: [Ali2024EdgeBus; Cerny2024From]
+
+  services:
+    network:
+      delay:
+        distribution:
+          type: uniform
+          low: 5.0    # Tight latency — real-time interactive apps
+          high: 40.0  # Ref: [3GPP TS 23.501]
+      bandwidth:
+        distribution:
+          type: uniform
+          low: 15.0    # High bandwidth — video, images, live content
+          high: 200.0  # 200 Mbps peak for 4K/8K streaming during surge.
+                       # Ref: [Netflix encoding specs; YouTube recommended]
+    topology_model: directed_scale_free
+    scale_free_settings:
+      initial_nodes: 2
+      edges_per_node: 2
+    num_services_range: [3, 8]  # Ref: [Gan et al., ASPLOS 2019]
+    profiles:
+      iot:
+        prob: 0.2  # Low IoT proportion — demand surge is user-facing
+        attributes:
+          cpu:
+            distribution:
+              type: lognormal
+              mean: 0.1
+              sigma: 0.5
+          ram:
+            distribution:
+              type: lognormal
+              mean: 0.1
+              sigma: 0.5
+      video:
+        prob: 0.45  # Dominant video/streaming workloads during surge
+                    # Ref: [Cisco Annual Internet Report 2023]
+        attributes:
+          cpu:
+            distribution:
+              type: lognormal
+              mean: 3.0   # High CPU — transcoding at scale
+              sigma: 1.2  # Ref: [Lu et al., NSDI 2019]
+          ram:
+            distribution:
+              type: lognormal
+              mean: 4.0   # High RAM — large frame buffers and models
+              sigma: 2.0
+      social:
+        prob: 0.2  # Social media — the primary vector for viral content
+        attributes:
+          cpu:
+            distribution:
+              type: lognormal
+              mean: 1.5
+              sigma: 0.8
+          ram:
+            distribution:
+              type: lognormal
+              mean: 2.0
+              sigma: 1.0
+      news:
+        prob: 0.15  # Breaking news apps — the trigger for the surge
+        attributes:
+          cpu:
+            distribution:
+              type: lognormal
+              mean: 1.0   # Moderate CPU — content delivery, push notifications
+              sigma: 0.6
+          ram:
+            distribution:
+              type: lognormal
+              mean: 1.5
+              sigma: 0.8
+
+  popularity:
+    distribution:
+      type: zipf
+      a: 1.8   # VERY HIGH skew — one or two viral apps dominate all traffic.
+               # During a flash crowd, the top app receives >60% of all requests.
+               # Ref: [Breslau et al., INFOCOM 1999]
+               # Ref: [Jung et al., WWW 2002 — flash crowd analysis]
+    local_app_ratio: 0.15  # Low local ratio — viral content is global,
+                           # not geographically bound.
+    local_radius_influence: 0.10
+
+  num_new_users:
+    type: integers
+    low: 3
+    high: 8  # High initial users per app — viral apps attract many users
+             # immediately upon creation
+
+  # ---------------------------------------------------------------------------
+  # APPLICATION EVENTS — EXTREME dynamics
+  # ---------------------------------------------------------------------------
+  actions:
+    remove_app:
+      frequency:
+        type: exponential
+        scale: 400  # Some apps are removed (ephemeral trend apps die quickly)
+
+    update_app_footprint:
+      frequency:
+        type: exponential
+        scale: 50  # VERY FREQUENT footprint changes — auto-scaling under
+                   # viral load. Kubernetes HPA triggers scaling every ~30-60s.
+                   # Ref: [Cortez et al., ATC 2017]
+                   # Ref: [Kubernetes HPA documentation — default 15s sync]
+      impact:
+        sigma_footprint:
+          type: uniform
+          low: 0.15   # LARGE footprint variations — services scale 15-30%
+          high: 0.30  # per scaling event during viral demand.
+                      # Ref: [Cortez et al., ATC 2017]
+
+    update_app_network:
+      frequency:
+        type: exponential
+        scale: 60  # Frequent — bandwidth needs grow with user count
+      impact:
+        sigma_net:
+          type: uniform
+          low: 0.10
+          high: 0.25  # Large network demand variations
+
+    update_app_topology:
+      frequency:
+        type: exponential
+        scale: 80  # FREQUENT topology mutations — auto-scaling adds caching
+                   # layers, load balancers, CDN nodes dynamically.
+                   # Ref: [Fu2022Adaptive]
+      impact:
+        l_min:
+          type: integers
+          low: 3    # Minimum 3 services — scaled-up apps maintain baseline
+          high: 4
+        l_max_global:
+          type: integers
+          low: 10   # Up to 10-12 services during peak scaling
+          high: 12  # Ref: [Gan et al., ASPLOS 2019]
+
+    surge_popularity:
+      frequency:
+        type: exponential
+        scale: 30  # EXTREME — popularity surges every ~30s as the viral
+                   # content propagates through social media shares, retweets.
+                   # Ref: [Jung et al., WWW 2002 — Flash Crowds and cachability]
+                   # Ref: [Crane & Sornette, PNAS 2008]
+      impact:
+        transient_prob:
+          type: uniform
+          low: 0.75  # 75% transient — viral attention is fickle
+          high: 0.75 # 25% permanent — some apps gain lasting popularity
+        duration_dist:
+          type: weibull
+          a: 2.0     # More symmetric duration distribution
+          scale: 20.0  # Mean ~17.7s — viral surges last longer than
+                       # crowd-event spikes.
+                       # Ref: [Jung et al., WWW 2002]
+
+    drop_popularity:
+      frequency:
+        type: exponential
+        scale: 80  # Less frequent drops — demand is rising, not falling
+      impact:
+        transient_prob:
+          type: uniform
+          low: 0.6
+          high: 0.6  # 60% transient drops — some permanent decline of
+                     # competing apps overshadowed by the viral one
+        duration_dist:
+          type: weibull
+          a: 1.5
+          scale: 15.0
+
+    geo_demand_shift:
+      frequency:
+        type: exponential
+        scale: 80  # Moderate — viral content spreads globally, but local
+                   # apps still shift geographically
+      impact:
+        jump_prob:
+          type: uniform
+          low: 0.4
+          high: 0.4  # 40% jumps — viral content "jumps" between regions
+                     # as different timezones discover it
+        drift_dist:
+          type: normal
+          mean: 0.0
+          sigma: 0.08  # Moderate drift magnitude
+
+# =============================================================================
+# USERS — RAPID growth, HIGH activity
+# =============================================================================
+user:
+  num_users: 12  # 24% of 50 nodes = 12 initial users.
+                 # Moderate start — the surge brings many more via spawner.
+
+  spatial_distribution:
+    model: thomas_cluster  # Clustered around initial user bases
+                           # Ref: [Saha2016Enriched]
+    hotspots: 5   # 5 population centers — urban areas where app adoption
+                  # starts before spreading
+    spread: 0.06  # Moderate spread — not as tight as crowd scenario
+
+  spatial_region:
+    width: 2.0
+    height: 2.0
+    num_vertical_streets: 10
+    num_horizontal_streets: 10
+
+  mobility:
+    model: random  # Random movement — users are at home, office, commuting.
+                   # Not constrained to streets.
+                   # Ref: [Kerdsri2017Visualization]
+    turn_probabilities:
+      straight: 0.5
+      left: 0.25
+      right: 0.25
+    speed:
+      type: uniform
+      low: 0.005   # Standard pedestrian speed
+      high: 0.02   # Ref: [Weidmann, 1993]
+    coverage_radius:
+      type: normal
+      mean: 0.2
+      sigma: 0.03
+
+  request_ratio:
+    type: exponential
+    scale: 8  # Higher baseline request rate — viral app users are highly
+              # engaged, refreshing frequently.
+              # Ref: [Paxson & Floyd, SIGCOMM 1995]
+
+  # ---------------------------------------------------------------------------
+  # USER EVENTS — HIGH activity changes, MODERATE mobility
+  # ---------------------------------------------------------------------------
+  actions:
+    remove_user:
+      frequency:
+        type: exponential
+        scale: 250  # Users churn moderately — some get bored of viral content
+
+    suspend_user:
+      frequency:
+        type: exponential
+        scale: 120  # Moderate disconnections — standard cellular behavior
+      impact:
+        resume_user:
+          type: lognormal
+          mean: 1.0
+          sigma: 0.5
+
+    move_user:
+      frequency:
+        type: exponential
+        scale: 100  # Standard mobility — users move naturally
+
+    change_request_ratio:
+      frequency:
+        type: exponential
+        scale: 40  # VERY FREQUENT request rate changes — users binge-consume
+                   # viral content, then pause, then binge again.
+                   # Ref: [Li2023Estimating]
+      impact:
+        increase_probability: 0.8  # 80% increase — strongly biased toward
+                                   # MORE activity during viral surge.
+                                   # Only 20% decrease (fatigue).
+        multiplier:
+          type: uniform
+          low: 2.0   # Large multiplier — binge-watching, constant refreshing
+          high: 5.0  # Ref: [Pujol et al., IMC 2015]
+        restore_ratio:
+          type: lognormal
+          mean: 1.5   # Slower restoration — users stay engaged longer
+          sigma: 0.8  # during viral events
+
+# =============================================================================
+# GLOBAL SPAWNER — RAPID user growth
+# =============================================================================
+global_spawner:
+  actions:
+    # --- VERY rapid new user arrival (exponential growth) ---
+    new_user:
+      type_object: user
+      action_type: new_user
+      frequency:
+        type: exponential
+        scale: 21  # Balanced to maintain stable user count (scale 250 / 12 users)
+                   # Viral growth follows exponential adoption curves.
+                   # Ref: [Bass, Management Science, 1969 — diffusion of
+                   #        innovations; adapted to digital virality]
+                   # Ref: [Benevenuto et al., IMC 2009]
+
+    # --- Moderate new app creation ---
+    new_app:
+      type_object: app
+      action_type: new_app
+      frequency:
+        type: exponential
+        scale: 16  # Balanced to maintain stable app count (scale 400 / 25 apps)
+                    # apps, and complementary services during viral events.
+                    # Ref: [app store dynamics during trending events]
+      impact:
+        num_new_users: 2
+
+    # =========================================================================
+    # COMPOSED EVENT: Viral Cascade
+    # =========================================================================
+    # Models a single viral propagation wave: a popular app surges, its
+    # footprint grows (auto-scaling), and nearby edges congest from the
+    # increased data flow. This captures the cascading nature of viral
+    # demand: popularity → footprint growth → network congestion.
+    #
+    # Ref: [Crane & Sornette, PNAS 2008 — cascading social response]
+    # Ref: [Jung et al., WWW 2002 — Flash Crowd characterization]
+    # =========================================================================
+    viral_cascade:
+      type_object: global
+      action_type: viral_cascade
+      frequency:
+        type: exponential
+        scale: 60  # One viral cascade wave every ~60s.
+                   # Viral content experiences periodic re-sharing waves
+                   # as it propagates through social network layers.
+                   # Ref: [Crane & Sornette, PNAS 2008]
+      impact:
+        composed_of:
+          # --- Sub-action 1: Increase popularity of 2 apps (AFFECTS existing users) ---
+          # increase_popularity multiplies the app's popularity AND
+          # automatically calls increase_request_ratio_by_requested_app,
+          # which increases the requestRatio of EVERY user subscribed
+          # to that app. This is the key viral demand mechanism.
+          # Ref: [Crane & Sornette, PNAS 2008]
+          - type_object: app
+            action_type: increase_popularity
+            impact_params:
+              target_resolution:
+                mode: group
+                group_config:
+                  strategy: random_proximity
+                  num_elements: 2
+              multiplier:
+                type: uniform
+                low: 2.0    # 2x-5x request rate increase for users of this app
+                high: 5.0   # Models viral sharing waves driving up per-user demand
+                            # Ref: [Jung et al., WWW 2002 — Flash Crowd dynamics]
+
+          # --- Sub-action 2: Update footprint of 2 apps (auto-scale) ---
+          - type_object: app
+            action_type: update_app_footprint
+            impact_params:
+              target_resolution:
+                mode: group
+                group_config:
+                  strategy: random
+                  num_elements: 2
+              sigma_footprint:
+                type: uniform
+                low: 0.20
+                high: 0.35  # Large scaling events during viral waves
+
+          # --- Sub-action 3: Congest 3 random edges ---
+          - type_object: graph_edge
+            action_type: congest_edge
+            impact_params:
+              target_resolution:
+                mode: group
+                group_config:
+                  strategy: random
+                  num_elements: 3
+              target_attributes_loss: ["bandwidth"]
+              target_attributes_multiplier: ["delay"]
+              p_loss_dist:
+                type: beta
+                a: 2
+                b: 3  # Mean ~0.4 — moderate-to-heavy bandwidth loss
+              multiplier_dist:
+                type: lognormal
+                mean: 0.6
+                sigma: 0.3
+              distribution_to_clear_edge:
+                type: exponential
+                scale: 30  # Slower clearing — sustained viral traffic

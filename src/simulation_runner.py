@@ -124,6 +124,7 @@ class ServicePlacementSimulation:
         self.trigger_manager = TriggerPolicyManager(self.config, sim_set=self.sim_set)
         self.last_opt_placement = None
         self.last_total_latency = None
+        self.last_solver_metrics = {}
         self.last_ilp_event_index = 0
 
     def _compute_total_ram_occupied_percent(self, graph_dict: Any) -> float:
@@ -137,6 +138,15 @@ class ServicePlacementSimulation:
 
         used_ram = sum(float(feat.get("ram_used", 0.0)) for _, feat in graph.nodes(data=True))
         return round((used_ram / total_ram) * 100.0, 2)
+
+    def _build_metrics(self, solver_metrics: Optional[Dict[str, Any]], infrastructure: Any) -> Dict[str, Any]:
+        metrics = solver_metrics.copy() if (solver_metrics and isinstance(solver_metrics, dict)) else {}
+        ram_occ = self._compute_total_ram_occupied_percent(infrastructure)
+        metrics["total_ram"] = ram_occ
+        metrics["total_ram_occupied"] = ram_occ
+        if "total_latency" not in metrics and self.last_total_latency is not None:
+            metrics["total_latency"] = self.last_total_latency
+        return metrics
 
     def _build_node_information(self, graph_dict: Any, app_set: Any) -> Dict[str, Any]:
         graph = graph_dict.get_main_graph()
@@ -154,7 +164,8 @@ class ServicePlacementSimulation:
                 "enable": feat.get("enable"),
                 "betweenness_centrality": feat.get("betweenness_centrality"),
                 "ram_used": feat.get("ram_used"),
-                "running_applications": feat.get("running_applications", [])
+                "running_applications": feat.get("running_applications", []),
+                "pos": list(feat.get("pos")) if feat.get("pos") is not None else None
             }
         return node_information
 
@@ -176,7 +187,7 @@ class ServicePlacementSimulation:
         sim_folder: str,
         csv_users: str,
         old_opt_placement: Optional[Dict[str, Any]] = None,
-        old_total_latency: Optional[float] = None
+        old_metrics: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         # 1. Get the first event and update the global time
         first_event = self.events.get_first_event()
@@ -187,7 +198,12 @@ class ServicePlacementSimulation:
 
         old_node_information = self._build_node_information(self.infrastructure, self.apps)
         old_edge_information = self._build_edge_information(self.infrastructure)
-        old_total_ram_occupied = self._compute_total_ram_occupied_percent(self.infrastructure)
+        if isinstance(old_metrics, dict) and old_metrics:
+            before_metrics = self._build_metrics(old_metrics, self.infrastructure)
+        elif isinstance(old_metrics, (int, float)):
+            before_metrics = self._build_metrics({"total_latency": float(old_metrics)}, self.infrastructure)
+        else:
+            before_metrics = self._build_metrics(self.last_solver_metrics, self.infrastructure)
 
         # 2. Save state "before"
         data = prepare_simulation_data(
@@ -200,14 +216,12 @@ class ServicePlacementSimulation:
                 "apps_phase": "before",
                 "placement": old_opt_placement,
                 "placement_phase": "before",
-                "total_latency": old_total_latency,
-                "total_latency_phase": "before",
-                "node_information": old_node_information,
-                "node_information_phase": "before",
-                "edge_information": old_edge_information,
-                "edge_information_phase": "before",
-                "total_ram_occupied": old_total_ram_occupied,
-                "total_ram_occupied_phase": "before",
+                "node": old_node_information,
+                "node_phase": "before",
+                "edge": old_edge_information,
+                "edge_phase": "before",
+                "metrics": before_metrics,
+                "metrics_phase": "before",
             }
         )
         save_simulation_step(sim_folder, iteration, data)
@@ -314,23 +328,31 @@ class ServicePlacementSimulation:
             # Use solver factory to get the strategy
             from src.solvers.solver_factory import SolverFactory
             solver = SolverFactory.get_solver(self.config)
-            optimal_placement, total_latency = solver.solve(
+            optimal_placement, solver_metrics = solver.solve(
                 self.infrastructure, self.apps, self.users, self.config, previous_placement=self.last_opt_placement
             )
+            if isinstance(solver_metrics, dict):
+                current_solver_metrics = solver_metrics.copy()
+            elif isinstance(solver_metrics, (int, float)):
+                current_solver_metrics = {"objective": float(solver_metrics), "total_latency": float(solver_metrics)}
+            else:
+                current_solver_metrics = {}
+
             if optimal_placement:
                 self.infrastructure.apply_placement(optimal_placement, self.apps)
                 self.last_opt_placement = optimal_placement
-                self.last_total_latency = total_latency
+                self.last_solver_metrics = current_solver_metrics
+                self.last_total_latency = current_solver_metrics.get("total_latency", self.last_total_latency)
             self.last_ilp_event_index = iteration
         else:
             logger.info(f"ILP Skipped by policy at event {iteration}")
             optimal_placement = self.last_opt_placement
-            total_latency = self.last_total_latency
+            current_solver_metrics = self.last_solver_metrics.copy()
 
         node_information_and_placement_message = self._build_node_information(self.infrastructure, self.apps)
         edge_information_message = self._build_edge_information(self.infrastructure)
-        total_ram_occupied = self._compute_total_ram_occupied_percent(self.infrastructure)
-        logger.info(f"Total RAM Occupied: {total_ram_occupied}%")
+        current_metrics = self._build_metrics(current_solver_metrics, self.infrastructure)
+        logger.info(f"Total RAM Occupied: {current_metrics.get('total_ram')}%")
 
         disconnected_apps = get_disconnected_apps(optimal_placement, self.infrastructure)
 
@@ -343,14 +365,12 @@ class ServicePlacementSimulation:
                 "disconnected_apps": disconnected_apps,
                 "placement": optimal_placement,
                 "placement_phase": "after",
-                "node_information": node_information_and_placement_message,
-                "node_information_phase": "after",
-                "edge_information": edge_information_message,
-                "edge_information_phase": "after",
-                "total_latency": total_latency,
-                "total_latency_phase": "after",
-                "total_ram_occupied": total_ram_occupied,
-                "total_ram_occupied_phase": "after",
+                "node": node_information_and_placement_message,
+                "node_phase": "after",
+                "edge": edge_information_message,
+                "edge_phase": "after",
+                "metrics": current_metrics,
+                "metrics_phase": "after",
                 "graph": self.infrastructure.get_main_graph(),
                 "graph_phase": "after",
                 "users": self.users,
@@ -368,7 +388,8 @@ class ServicePlacementSimulation:
 
         return {
             "optimal_placement": optimal_placement,
-            "total_latency": total_latency,
+            "total_latency": current_metrics.get("total_latency", 0.0),
+            "metrics": current_metrics,
         }
 
     def run(self) -> None:
@@ -409,11 +430,23 @@ class ServicePlacementSimulation:
         # Get initial optimal placement
         from src.solvers.solver_factory import SolverFactory
         solver = SolverFactory.get_solver(self.config)
-        optimal_placement, total_latency = solver.solve(
+        optimal_placement, solver_metrics = solver.solve(
             self.infrastructure, self.apps, self.users, self.config, previous_placement=None
         )
+        if isinstance(solver_metrics, dict):
+            self.last_solver_metrics = solver_metrics.copy()
+            total_latency = solver_metrics.get("total_latency", 0.0)
+        elif isinstance(solver_metrics, (int, float)):
+            total_latency = float(solver_metrics)
+            self.last_solver_metrics = {"objective": total_latency, "total_latency": total_latency}
+        else:
+            total_latency = 0.0
+            self.last_solver_metrics = {}
+
         if optimal_placement:
             self.infrastructure.apply_placement(optimal_placement, self.apps)
+            self.last_opt_placement = optimal_placement
+            self.last_total_latency = total_latency
             logger.debug(f"Application Placement: {optimal_placement}")
             logger.debug(f"Total Latency: {total_latency}")
             logger.debug("Updated Node Information with Application Placement:")
@@ -454,6 +487,7 @@ class ServicePlacementSimulation:
         add_and_log_user_count(self.users, 0, csv_users, "No Action")
 
         # Save step 0
+        initial_metrics = self._build_metrics(self.last_solver_metrics, self.infrastructure)
         data = prepare_simulation_data(
             {
                 "graph": self.infrastructure.get_main_graph(),
@@ -464,41 +498,38 @@ class ServicePlacementSimulation:
                 "apps_phase": "before",
                 "placement": optimal_placement,
                 "placement_phase": "after",
-                "total_latency": total_latency,
-                "total_latency_phase": "after",
-                "node_information": self._build_node_information(self.infrastructure, self.apps),
-                "node_information_phase": "after",
-                "edge_information": self._build_edge_information(self.infrastructure),
-                "edge_information_phase": "after",
-                "total_ram_occupied": self._compute_total_ram_occupied_percent(self.infrastructure),
-                "total_ram_occupied_phase": "after",
+                "node": self._build_node_information(self.infrastructure, self.apps),
+                "node_phase": "after",
+                "edge": self._build_edge_information(self.infrastructure),
+                "edge_phase": "after",
+                "metrics": initial_metrics,
+                "metrics_phase": "after",
             }
         )
         save_simulation_step(sim_folder, 0, data)
 
         i = 1
-        old_opt_placement, old_total_latency = None, None
+        old_opt_placement = optimal_placement
+        old_metrics = initial_metrics.copy()
 
         try:
             while self.events.events and i < self.total_iterations:
                 logger.info(f"--- ITERATION {i} ---")
-                actual = self._update_system_state(i, sim_folder, csv_users, old_opt_placement, old_total_latency)
+                actual = self._update_system_state(i, sim_folder, csv_users, old_opt_placement, old_metrics)
                 actual_opt_placement = actual["optimal_placement"]
-                actual_total_latency = actual["total_latency"]
+                actual_metrics = actual.get("metrics", {})
 
                 diff_message = difference_in_placement(
                     old_opt_placement,
                     actual_opt_placement,
-                    old_total_latency,
-                    actual_total_latency,
+                    old_metrics.get("total_latency") if old_metrics else None,
+                    actual_metrics.get("total_latency") if actual_metrics else None,
                 )
                 data = prepare_simulation_data({"diff_message": diff_message})
                 save_simulation_step(sim_folder, i, data)
 
-                old_opt_placement, old_total_latency = (
-                    actual_opt_placement,
-                    actual_total_latency,
-                )
+                old_opt_placement = actual_opt_placement
+                old_metrics = actual_metrics
                 i += 1
         except SimulationStopped as e:
             logger.info(f"Simulation stopped: {e}")

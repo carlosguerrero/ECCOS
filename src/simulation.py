@@ -249,13 +249,15 @@ def prepare_simulation_data(data_sources: Dict[str, Any]) -> Dict[str, Any]:
         phase = data_sources.get('placement_phase', 'after')
         prepared_data[f'placement_{phase}'] = prepare_placement_data(data_sources['placement'])
 
-    if 'node_information' in data_sources:
-        phase = data_sources.get('node_information_phase', 'after')
-        prepared_data[f'node_information_{phase}'] = prepare_node_information_and_placement_data(data_sources['node_information'])
+    if 'node_information' in data_sources or 'node' in data_sources:
+        node_data = data_sources.get('node_information', data_sources.get('node'))
+        phase = data_sources.get('node_information_phase', data_sources.get('node_phase', 'after'))
+        prepared_data[f'node_{phase}'] = prepare_node_information_and_placement_data(node_data)
 
-    if 'edge_information' in data_sources:
-        phase = data_sources.get('edge_information_phase', 'after')
-        prepared_data[f'edge_information_{phase}'] = data_sources['edge_information']
+    if 'edge_information' in data_sources or 'edge' in data_sources:
+        edge_data = data_sources.get('edge_information', data_sources.get('edge'))
+        phase = data_sources.get('edge_information_phase', data_sources.get('edge_phase', 'after'))
+        prepared_data[f'edge_{phase}'] = edge_data
 
     if 'ilp_executed' in data_sources:
         prepared_data['ilp_executed'] = data_sources['ilp_executed']
@@ -269,14 +271,25 @@ def prepare_simulation_data(data_sources: Dict[str, Any]) -> Dict[str, Any]:
     if 'diff_message' in data_sources:
         prepared_data['diff_message'] = prepare_placement_data(data_sources['diff_message'])
 
-    if 'total_latency' in data_sources:
-        phase = data_sources.get('total_latency_phase', 'after')
-        prepared_data[f'total_latency_{phase}'] = prepare_total_latency_data(data_sources['total_latency'])
+    metrics_phase = data_sources.get('metrics_phase', data_sources.get('total_latency_phase', data_sources.get('total_ram_occupied_phase', 'after')))
+    metrics_dict = {}
+    if 'metrics' in data_sources and isinstance(data_sources['metrics'], dict):
+        metrics_dict.update(data_sources['metrics'])
     
-    if 'total_ram_occupied' in data_sources:
-        phase = data_sources.get('total_ram_occupied_phase', 'after')
-        prepared_data[f'total_ram_occupied_{phase}'] = prepare_total_ram_occupied_data(data_sources['total_ram_occupied'])
+    if 'total_latency' in data_sources and 'total_latency' not in metrics_dict:
+        metrics_dict['total_latency'] = prepare_total_latency_data(data_sources['total_latency'])
+    if 'total_ram_occupied' in data_sources and 'total_ram_occupied' not in metrics_dict:
+        metrics_dict['total_ram_occupied'] = prepare_total_ram_occupied_data(data_sources['total_ram_occupied'])
+    if 'total_ram' in data_sources and 'total_ram' not in metrics_dict:
+        metrics_dict['total_ram'] = prepare_total_ram_occupied_data(data_sources['total_ram'])
     
+    if metrics_dict or 'metrics' in data_sources:
+        if 'total_ram_occupied' in metrics_dict and 'total_ram' not in metrics_dict:
+            metrics_dict['total_ram'] = metrics_dict['total_ram_occupied']
+        elif 'total_ram' in metrics_dict and 'total_ram_occupied' not in metrics_dict:
+            metrics_dict['total_ram_occupied'] = metrics_dict['total_ram']
+        prepared_data[f'metrics_{metrics_phase}'] = metrics_dict
+
     return prepared_data
 
 def stop_simulation(app_set: Any, user_set: Any, graph_dict: Any) -> None:

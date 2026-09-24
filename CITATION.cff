@@ -1,0 +1,40 @@
+cff-version: 1.2.0
+message: "If you use ECCOS in your research or wish to refer to the baseline results, please cite it as below."
+title: "Event-Driven Computing Continuum Orchestration Solver (ECCOS): A Discrete-Event Simulation Framework for Optimal Service Placement and ML-Ready Trace Generation"
+authors:
+  - family-names: "Jaume"
+    given-names: "Mireia"
+    affiliation: "University of the Balearic Islands"
+  - family-names: "Lera"
+    given-names: "Isaac"
+    affiliation: "University of the Balearic Islands"
+    orcid: "https://orcid.org/0000-0002-2826-5970"
+  - family-names: "Guerrero"
+    given-names: "Carlos"
+    affiliation: "University of the Balearic Islands"
+    orcid: "https://orcid.org/0000-0003-2969-0597"
+version: 1.0.0
+date-released: 2026-09-17
+license: MIT
+repository-code: "https://github.com/carlosguerrero/ECCOS"
+keywords:
+  - "computing-continuum"
+  - "discrete-event-simulation"
+  - "edge-computing"
+  - "fog-computing"
+  - "service-placement-problem"
+  - "integer-linear-programming"
+  - "machine-learning-datasets"
+  - "reinforcement-learning"
+preferred-citation:
+  type: article
+  authors:
+    - family-names: "Jaume"
+      given-names: "Mireia"
+    - family-names: "Lera"
+      given-names: "Isaac"
+    - family-names: "Guerrero"
+      given-names: "Carlos"
+  title: "Event-Driven Computing Continuum Orchestration Solver (ECCOS): A Discrete-Event Simulation Framework for Optimal Service Placement and ML-Ready Trace Generation"
+  journal: "Concurrency and Computation: Practice and Experience"
+  year: 2026

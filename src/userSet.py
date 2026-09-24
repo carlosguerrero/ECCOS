@@ -516,12 +516,16 @@ def create_new_user(config, appsSet, infrastructure, user_set, event_set, sim_se
         user_sign = None
         user_angle = None
         
+    initial_connected_to = infrastructure.get_closest_edge_node(initial_pos) if infrastructure else None
+    if initial_connected_to is None and infrastructure:
+        initial_connected_to = infrastructure.selectRandomGraphNodeByCentrality(user_centrality, sim_set)
+
     userAttributes = user_set.newUserItem(
         name=user_set.getNextUserId(),
         requestedApp=rqApp,  # Randomly select an application based on popularity
         appName=appNm,
         requestRatio=sim_set.parse_distribution(user_conf.get('request_ratio'), context='user') if sim_set else 1.0,  
-        connectedTo=infrastructure.selectRandomGraphNodeByCentrality(user_centrality, sim_set),  # Randomly select a node from the graph
+        connectedTo=initial_connected_to,
         centrality=user_centrality,
         actions=user_actions_config,
         pos=initial_pos,
