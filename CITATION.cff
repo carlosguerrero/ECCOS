@@ -17,6 +17,10 @@ version: 1.0.0
 date-released: 2026-09-17
 license: MIT
 repository-code: "https://github.com/carlosguerrero/ECCOS"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.XXXXXXX"
+    description: "Open-access archive for simulation traces and MDP dataset on Zenodo"
 keywords:
   - "computing-continuum"
   - "discrete-event-simulation"

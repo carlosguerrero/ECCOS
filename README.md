@@ -2,6 +2,7 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![DOI: 10.5281/zenodo.XXXXXXX](https://zenodo.org/badge/DOI/10.5281/zenodo.XXXXXXX.svg)](https://doi.org/10.5281/zenodo.XXXXXXX)
 [![Framework: ECCOS](https://img.shields.io/badge/Framework-ECCOS-brightgreen.svg)](#architecture-and-modular-design)
 [![Artifact Evaluation](https://img.shields.io/badge/Artifact-Reproducible-success.svg)](#reproducing-the-paper-experiments)
 [![Citation](https://img.shields.io/badge/Citation-BibTeX-orange.svg)](#how-to-cite)
@@ -19,6 +20,7 @@ Developed as an open-source research platform, ECCOS bridges the gap between low
 - [Prerequisites and Installation](#prerequisites-and-installation)
 - [Running Simulations (General Usage)](#running-simulations-general-usage)
 - [Reproducing the Paper Experiments](#reproducing-the-paper-experiments)
+- [Precomputed Traces & Zenodo Open Dataset](#precomputed-traces--zenodo-open-dataset)
 - [Generating Publication Plots](#generating-publication-plots)
 - [Regenerating Architectural & UML Diagrams](#regenerating-architectural--uml-diagrams)
 - [Project Directory Structure](#project-directory-structure)
@@ -174,6 +176,30 @@ python run_experiments.py --iterations 5000
 # Run only specific scenarios (e.g., Scenario 1 and Scenario 2)
 python run_experiments.py --experiments 1 2 --iterations 1000
 ```
+
+---
+
+## Precomputed Traces & Zenodo Open Dataset
+
+Due to GitHub's repository size recommendations, the precomputed 5,000-step raw telemetry traces (~3.1 GB uncompressed across all 4 benchmark scenarios) are permanently archived on **Zenodo**:
+
+- **Zenodo DOI:** [10.5281/zenodo.XXXXXXX](https://doi.org/10.5281/zenodo.XXXXXXX)
+- **Archive Contents:** Per-step Markov Decision Process (MDP) state transitions $(s_t, a_t, r_t, s_{t+1})$, topology states, placement decisions, and objective metrics.
+- **License:** Creative Commons Attribution 4.0 International (CC-BY 4.0)
+
+### Quick Download & Setup:
+```bash
+# 1. Download the archive from Zenodo (replace XXXXXXX with the publication record ID)
+curl -L -o eccos_simulation_traces.tar.gz https://zenodo.org/records/XXXXXXX/files/eccos_simulation_traces.tar.gz?download=1
+
+# 2. Extract into the expected experiments results directory
+tar -xzf eccos_simulation_traces.tar.gz -C experiments/simulation_json_outputs_results/
+
+# 3. Directly generate publication figures from the downloaded traces
+python experiments/run_all_plots.py --skip-geo
+```
+
+> **Note:** Downloading the Zenodo dataset is optional. Researchers can reproduce the exact raw telemetry locally by executing `python run_experiments.py --iterations 5000` with the deterministic master seed (`42`).
 
 ---
 

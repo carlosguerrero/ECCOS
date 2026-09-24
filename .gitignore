@@ -16,7 +16,8 @@ dist/
 # Large Simulation Outputs & Datasets
 Simulations_raw/
 Simulations_official/
-experiments/simulation_json_outputs_results/
+experiments/simulation_json_outputs_results/*
+!experiments/simulation_json_outputs_results/README.md
 experiments/figures/plot2_geolocation_*/
 
 # Paper LaTeX sources
